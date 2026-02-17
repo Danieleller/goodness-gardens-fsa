@@ -253,7 +253,7 @@ export function FacilitiesPage() {
       try {
         setLoading(true);
         const response = await facilitiesAPI.getAll();
-        setFacilities(response.facilities);
+        setFacilities(response.data.facilities);
         setError(null);
       } catch (err) {
         setError(

@@ -103,7 +103,7 @@ export function SOPHubPage() {
           priority: filters.priority,
         };
         const result = await sopsAPI.getAll(params);
-        setSops(result.sops);
+        setSops(result.data.sops);
       } catch (error) {
         console.error('Failed to fetch SOPs:', error);
       } finally {
@@ -143,7 +143,7 @@ export function SOPHubPage() {
       });
       // Refresh SOPs
       const result = await sopsAPI.getAll(filters);
-      setSops(result.sops);
+      setSops(result.data.sops);
     } catch (error) {
       console.error('Failed to create SOP:', error);
     } finally {
@@ -159,9 +159,9 @@ export function SOPHubPage() {
       await sopsAPI.updateStatus(sopId, newStatus);
       // Refresh SOPs
       const result = await sopsAPI.getAll(filters);
-      setSops(result.sops);
+      setSops(result.data.sops);
       if (selectedSOP?.id === sopId) {
-        const updated = result.sops.find((s) => s.id === sopId);
+        const updated = result.data.sops.find((s) => s.id === sopId);
         if (updated) setSelectedSOP(updated);
       }
     } catch (error) {
@@ -174,7 +174,7 @@ export function SOPHubPage() {
   const handleViewDetail = async (sop: SOP) => {
     try {
       const result = await sopsAPI.getById(sop.id);
-      setSelectedSOP(result.sop);
+      setSelectedSOP(result.data.sop);
       setShowDetail(true);
     } catch (error) {
       console.error('Failed to fetch SOP details:', error);
@@ -505,13 +505,13 @@ export function SOPHubPage() {
               </div>
 
               {/* Status Workflow Buttons */}
-              {isAdmin && statusWorkflow[selectedSOP.status].length > 0 && (
+              {isAdmin && (statusWorkflow[selectedSOP.status] || []).length > 0 && (
                 <div className="border-t pt-6">
                   <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
                     Update Status
                   </h3>
                   <div className="flex gap-2 flex-wrap">
-                    {statusWorkflow[selectedSOP.status].map((nextStatus) => (
+                    {(statusWorkflow[selectedSOP.status] || []).map((nextStatus) => (
                       <button
                         key={nextStatus}
                         onClick={() =>

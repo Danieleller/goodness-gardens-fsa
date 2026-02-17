@@ -455,7 +455,7 @@ export function GapAnalysisPage() {
     setError(null);
     try {
       const data = await gapsAPI.summary();
-      setFacilities(data.facilities);
+      setFacilities(data.data.facilities);
       setView('summary');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load facilities');
@@ -470,7 +470,7 @@ export function GapAnalysisPage() {
     setError(null);
     try {
       const data = await gapsAPI.getByFacility(facilityId);
-      setFacilityDetail(data);
+      setFacilityDetail(data.data);
       setView('detail');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load facility details');
@@ -493,7 +493,7 @@ export function GapAnalysisPage() {
       // Reload facility detail to show new snapshot
       if (selectedFacility) {
         const data = await gapsAPI.getByFacility(selectedFacility);
-        setFacilityDetail(data);
+        setFacilityDetail(data.data);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to take snapshot');

@@ -107,7 +107,7 @@ export function SupplierPage() {
         ...(filterType && { type: filterType }),
         ...(filterStatus && { status: filterStatus }),
       });
-      setSuppliers(response.data.suppliers || response.data);
+      setSuppliers(response.data.suppliers);
     } catch (error) {
       console.error('Failed to fetch suppliers:', error);
     } finally {
@@ -118,7 +118,7 @@ export function SupplierPage() {
   const fetchExpiringCerts = async () => {
     try {
       const response = await suppliersAPI.expiring(30);
-      setExpiringCerts(response.data.certifications || response.data);
+      setExpiringCerts(response.data.certifications);
     } catch (error) {
       console.error('Failed to fetch expiring certs:', error);
     }
@@ -128,10 +128,10 @@ export function SupplierPage() {
     setCertLoading(true);
     try {
       const supplierRes = await suppliersAPI.getById(supplierId);
-      setSelectedSupplier(supplierRes.data.supplier || supplierRes.data);
+      setSelectedSupplier(supplierRes.data.supplier);
 
       const certsRes = await suppliersAPI.certifications.getAll(supplierId);
-      setCertifications(certsRes.data.certifications || certsRes.data);
+      setCertifications(certsRes.data.certifications);
     } catch (error) {
       console.error('Failed to fetch supplier details:', error);
     } finally {

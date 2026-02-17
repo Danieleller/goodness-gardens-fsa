@@ -141,7 +141,7 @@ export function AuditSimulatorPage() {
       setLoading(true);
       try {
         const data = await facilitiesAPI.getAll();
-        setFacilities(data.facilities);
+        setFacilities(data.data.facilities);
       } catch (error) {
         console.error('Error loading facilities:', error);
       } finally {
@@ -163,10 +163,10 @@ export function AuditSimulatorPage() {
           auditAPI.modules(selectedFacility),
           auditAPI.simulations.getAll(selectedFacility),
         ]);
-        setModules(modulesData.modules);
-        setPastSimulations(simulationsData.simulations);
-        if (modulesData.modules.length > 0) {
-          setActiveModule(modulesData.modules[0].id);
+        setModules(modulesData.data.modules);
+        setPastSimulations(simulationsData.data.simulations);
+        if (modulesData.data.modules.length > 0) {
+          setActiveModule(modulesData.data.modules[0].id);
         }
       } catch (error) {
         console.error('Error loading facility data:', error);
@@ -184,7 +184,7 @@ export function AuditSimulatorPage() {
     setLoading(true);
     try {
       const data = await auditAPI.simulations.create(selectedFacility);
-      setCurrentSimulation(data.simulation);
+      setCurrentSimulation(data.data.simulation);
       setResponses({});
       setPageState('in-progress');
     } catch (error) {
@@ -223,7 +223,7 @@ export function AuditSimulatorPage() {
       const scoreData = await auditAPI.simulations.getScore(
         currentSimulation.id
       );
-      setResults(scoreData);
+      setResults(scoreData.data);
       setPageState('results');
     } catch (error) {
       console.error('Error saving responses:', error);
