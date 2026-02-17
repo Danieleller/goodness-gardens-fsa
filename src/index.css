@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-green-50 text-gray-900;
+}
+
+button {
+  @apply transition-colors duration-200;
+}
+
+input, textarea, select {
+  @apply transition-colors duration-200;
+}
