@@ -1699,6 +1699,7 @@ async function handleVendorCertifications(
         sql: `SELECT id, vendor_id, vendor_name, item_type, cert_file_name, expiration_date, notification_email, notification_sent, uploaded_by, uploaded_at, updated_at
               FROM vendor_certifications
               ORDER BY vendor_name ASC, item_type ASC, expiration_date ASC`,
+        args: [],
       });
       return res.status(200).json({ certifications: result.rows });
     } catch (error) {
@@ -1861,20 +1862,18 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
 
     const query = `
       SELECT
-        COALESCE(Item.custitem_type, Item.class, 'Conventional') AS type,
         BUILTIN.DF(Transaction.entity) AS vendor,
         MAX(Transaction.trandate) AS last_transaction,
         Transaction.entity AS vendor_id
       FROM Transaction
       INNER JOIN TransactionLine ON TransactionLine.transaction = Transaction.id
-      INNER JOIN Item ON TransactionLine.item = Item.id
       WHERE Transaction.type = 'ItemRcpt'
         AND TransactionLine.mainline = 'F'
         AND TransactionLine.taxline = 'F'
         AND TransactionLine.quantity > 0
         AND Transaction.trandate >= ADD_MONTHS(TRUNC(SYSDATE, 'YEAR'), 0)
-      GROUP BY COALESCE(Item.custitem_type, Item.class, 'Conventional'), Transaction.entity, BUILTIN.DF(Transaction.entity)
-      ORDER BY type ASC, BUILTIN.DF(Transaction.entity) ASC, MAX(Transaction.trandate) DESC
+      GROUP BY Transaction.entity, BUILTIN.DF(Transaction.entity)
+      ORDER BY BUILTIN.DF(Transaction.entity) ASC, MAX(Transaction.trandate) DESC
     `;
 
     const queryParams: Record<string, string> = { limit: '200', offset: '0' };
