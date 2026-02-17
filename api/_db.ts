@@ -387,7 +387,7 @@ async function seedDb() {
 
   // Migrate: add internal_id column if it doesn't exist
   try {
-    await db.execute('ALTER TABLE facilities ADD COLUMN internal_id INTEGER UNIQUE');
+    await db.execute('ALTER TABLE facilities ADD COLUMN internal_id INTEGER');
   } catch (_e) {
     // Column already exists, ignore
   }
