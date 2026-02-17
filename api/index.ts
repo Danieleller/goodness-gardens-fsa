@@ -1198,7 +1198,7 @@ async function handleFacilities(req: VercelRequest, res: VercelResponse, db: any
   if (!id) {
     if (req.method === 'GET') {
       const result = await db.execute({ sql: 'SELECT * FROM facilities WHERE is_active = 1 ORDER BY name', args: [] });
-      return res.status(200).json(result.rows);
+      return res.status(200).json({ facilities: result.rows });
     }
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -1207,7 +1207,7 @@ async function handleFacilities(req: VercelRequest, res: VercelResponse, db: any
     const result = await db.execute({ sql: 'SELECT * FROM facilities WHERE id = ?', args: [fId] });
     if (result.rows.length === 0) return res.status(404).json({ error: 'Facility not found' });
     const modules = await db.execute({ sql: 'SELECT fm.*, am.code, am.name as module_name FROM facility_modules fm JOIN audit_modules am ON fm.module_id = am.id WHERE fm.facility_id = ?', args: [fId] });
-    return res.status(200).json({ ...result.rows[0], modules: modules.rows });
+    return res.status(200).json({ facility: result.rows[0], modules: modules.rows });
   }
   if (req.method === 'PUT') {
     const isAdmin = await requireAdmin(userId, db);
@@ -1229,7 +1229,7 @@ async function handleChecklistTemplates(req: VercelRequest, res: VercelResponse,
       if (facility_type) { sql += ' AND (facility_type = ? OR facility_type = \'All\')'; args.push(facility_type); }
       sql += ' ORDER BY frequency, name';
       const result = await db.execute({ sql, args });
-      return res.status(200).json(result.rows);
+      return res.status(200).json({ templates: result.rows });
     }
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -1238,7 +1238,7 @@ async function handleChecklistTemplates(req: VercelRequest, res: VercelResponse,
     const template = await db.execute({ sql: 'SELECT * FROM checklist_templates WHERE id = ?', args: [tId] });
     if (template.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
     const items = await db.execute({ sql: 'SELECT * FROM checklist_items WHERE template_id = ? ORDER BY sort_order, item_number', args: [tId] });
-    return res.status(200).json({ ...template.rows[0], items: items.rows });
+    return res.status(200).json({ template: template.rows[0], items: items.rows });
   }
   return res.status(405).json({ error: 'Method not allowed' });
 }
@@ -1253,7 +1253,7 @@ async function handleChecklistSubmissions(req: VercelRequest, res: VercelRespons
       if (template_id) { sql += ' AND cs.template_id = ?'; args.push(Number(template_id)); }
       sql += ' ORDER BY cs.created_at DESC LIMIT 100';
       const result = await db.execute({ sql, args });
-      return res.status(200).json(result.rows);
+      return res.status(200).json({ submissions: result.rows });
     }
     if (req.method === 'POST') {
       const { facility_id, template_id, answers, notes } = req.body;
@@ -1312,7 +1312,7 @@ async function handleSops(req: VercelRequest, res: VercelResponse, db: any, user
       if (priority) { sql += ' AND priority = ?'; args.push(priority); }
       sql += ' ORDER BY code';
       const result = await db.execute({ sql, args });
-      return res.status(200).json(result.rows);
+      return res.status(200).json({ sops: result.rows });
     }
     if (req.method === 'POST') {
       const isAdmin = await requireAdmin(userId, db);
@@ -1347,7 +1347,7 @@ async function handleSops(req: VercelRequest, res: VercelResponse, db: any, user
     if (sop.rows.length === 0) return res.status(404).json({ error: 'SOP not found' });
     const facilityStatuses = await db.execute({ sql: 'SELECT sfs.*, f.name as facility_name, f.code as facility_code FROM sop_facility_status sfs JOIN facilities f ON sfs.facility_id = f.id WHERE sfs.sop_id = ?', args: [sopId] });
     const versions = await db.execute({ sql: 'SELECT * FROM sop_versions WHERE sop_id = ? ORDER BY version_number DESC', args: [sopId] });
-    return res.status(200).json({ ...sop.rows[0], facility_statuses: facilityStatuses.rows, versions: versions.rows });
+    return res.status(200).json({ sop: sop.rows[0], facility_statuses: facilityStatuses.rows, versions: versions.rows });
   }
   if (req.method === 'PUT') {
     const isAdmin = await requireAdmin(userId, db);
@@ -1369,7 +1369,7 @@ async function handleSopsByFacility(req: VercelRequest, res: VercelResponse, db:
     sql: 'SELECT sd.*, COALESCE(sfs.status, \'missing\') as facility_status, sfs.last_review_date, sfs.notes as status_notes FROM sop_documents sd LEFT JOIN sop_facility_status sfs ON sd.id = sfs.sop_id AND sfs.facility_id = ? ORDER BY sd.code',
     args: [fId],
   });
-  return res.status(200).json(result.rows);
+  return res.status(200).json({ sops: result.rows });
 }
 
 async function handleGapAnalysis(req: VercelRequest, res: VercelResponse, db: any, userId: number, path: string[]) {
@@ -1390,7 +1390,7 @@ async function handleGapAnalysis(req: VercelRequest, res: VercelResponse, db: an
       const pct = applicable > 0 ? Math.round((currentCount / applicable) * 100) : 0;
       summary.push({ facility_id: fac.id, facility_name: fac.name, facility_code: fac.code, total: totalCount, current: currentCount, needs_update: Number((outdated.rows[0] as any).cnt), missing: Number((missing.rows[0] as any).cnt), not_applicable: Number((na.rows[0] as any).cnt), readiness_pct: pct });
     }
-    return res.status(200).json(summary);
+    return res.status(200).json({ facilities: summary });
   }
   const facilityId = Number(path[0]);
   if (path[1] === 'snapshot') {
@@ -1410,12 +1410,14 @@ async function handleGapAnalysis(req: VercelRequest, res: VercelResponse, db: an
     return res.status(201).json({ id: Number(snap.lastInsertRowid), readiness_pct: pct });
   }
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const facility = await db.execute({ sql: 'SELECT * FROM facilities WHERE id = ?', args: [facilityId] });
+  if (facility.rows.length === 0) return res.status(404).json({ error: 'Facility not found' });
   const sops = await db.execute({
     sql: 'SELECT sd.id, sd.code, sd.title, sd.category, sd.priority, sd.owner, COALESCE(sfs.status, \'missing\') as status, sfs.last_review_date, sfs.notes FROM sop_documents sd LEFT JOIN sop_facility_status sfs ON sd.id = sfs.sop_id AND sfs.facility_id = ? ORDER BY sd.code',
     args: [facilityId],
   });
   const snapshots = await db.execute({ sql: 'SELECT * FROM gap_snapshots WHERE facility_id = ? ORDER BY snapshot_date DESC LIMIT 10', args: [facilityId] });
-  return res.status(200).json({ sops: sops.rows, snapshots: snapshots.rows });
+  return res.status(200).json({ facility: facility.rows[0], sops: sops.rows, snapshots: snapshots.rows });
 }
 
 async function handleAuditModules(req: VercelRequest, res: VercelResponse, db: any, userId: number, facilityId: string) {
@@ -1433,7 +1435,7 @@ async function handleAuditModules(req: VercelRequest, res: VercelResponse, db: a
       result.push({ ...mod, questions: questions.rows });
     }
   }
-  return res.status(200).json(result);
+  return res.status(200).json({ modules: result });
 }
 
 async function handleAuditSimulations(req: VercelRequest, res: VercelResponse, db: any, userId: number, id?: string, action?: string) {
@@ -1445,7 +1447,7 @@ async function handleAuditSimulations(req: VercelRequest, res: VercelResponse, d
       if (facility_id) { sql += ' AND s.facility_id = ?'; args.push(Number(facility_id)); }
       sql += ' ORDER BY s.created_at DESC LIMIT 50';
       const result = await db.execute({ sql, args });
-      return res.status(200).json(result.rows);
+      return res.status(200).json({ simulations: result.rows });
     }
     if (req.method === 'POST') {
       const { facility_id } = req.body;
@@ -1498,13 +1500,13 @@ async function handleAuditSimulations(req: VercelRequest, res: VercelResponse, d
     let grade = pct >= 97 ? 'A+' : pct >= 92 ? 'A' : pct >= 85 ? 'B' : pct >= 75 ? 'C' : 'D';
     if (hasAutoFail) grade = 'FAIL';
     await db.execute({ sql: 'UPDATE audit_simulations SET earned_points = ?, score_pct = ?, has_auto_fail = ?, grade = ? WHERE id = ?', args: [totalEarned, pct, hasAutoFail ? 1 : 0, grade, simId] });
-    return res.status(200).json({ total_points: totalMax, earned_points: totalEarned, score_pct: pct, grade, has_auto_fail: hasAutoFail, auto_fails: autoFails.rows, module_scores: moduleScores.rows });
+    return res.status(200).json({ simulation: { ...simData, earned_points: totalEarned, score_pct: pct, has_auto_fail: hasAutoFail ? 1 : 0, grade }, modules: moduleScores.rows });
   }
   if (req.method === 'GET') {
     const sim = await db.execute({ sql: 'SELECT s.*, f.name as facility_name FROM audit_simulations s JOIN facilities f ON s.facility_id = f.id WHERE s.id = ?', args: [simId] });
     if (sim.rows.length === 0) return res.status(404).json({ error: 'Simulation not found' });
     const responses = await db.execute({ sql: 'SELECT ar.*, aq.question_code, aq.question_text, aq.points as max_points, aq.is_auto_fail, am.code as module_code FROM audit_responses ar JOIN audit_questions_v2 aq ON ar.question_id = aq.id JOIN audit_modules am ON aq.module_id = am.id WHERE ar.simulation_id = ? ORDER BY aq.question_code', args: [simId] });
-    return res.status(200).json({ ...sim.rows[0], responses: responses.rows });
+    return res.status(200).json({ simulation: sim.rows[0], responses: responses.rows });
   }
   return res.status(405).json({ error: 'Method not allowed' });
 }
@@ -1519,7 +1521,7 @@ async function handleSuppliers(req: VercelRequest, res: VercelResponse, db: any,
       if (status) { sql += ' AND s.approval_status = ?'; args.push(status); }
       sql += ' ORDER BY s.name';
       const result = await db.execute({ sql, args });
-      return res.status(200).json(result.rows);
+      return res.status(200).json({ suppliers: result.rows });
     }
     if (req.method === 'POST') {
       const isAdmin = await requireAdmin(userId, db);
@@ -1538,7 +1540,7 @@ async function handleSuppliers(req: VercelRequest, res: VercelResponse, db: any,
   if (action === 'certifications') {
     if (req.method === 'GET') {
       const certs = await db.execute({ sql: 'SELECT * FROM supplier_certifications WHERE supplier_id = ? ORDER BY expiry_date', args: [supId] });
-      return res.status(200).json(certs.rows);
+      return res.status(200).json({ certifications: certs.rows });
     }
     if (req.method === 'POST') {
       const { cert_type, cert_name, issuing_body, cert_number, issue_date, expiry_date, alert_days_before } = req.body;
@@ -1557,7 +1559,7 @@ async function handleSuppliers(req: VercelRequest, res: VercelResponse, db: any,
     const sup = await db.execute({ sql: 'SELECT * FROM suppliers WHERE id = ?', args: [supId] });
     if (sup.rows.length === 0) return res.status(404).json({ error: 'Supplier not found' });
     const certs = await db.execute({ sql: 'SELECT * FROM supplier_certifications WHERE supplier_id = ? ORDER BY expiry_date', args: [supId] });
-    return res.status(200).json({ ...sup.rows[0], certifications: certs.rows });
+    return res.status(200).json({ supplier: sup.rows[0], certifications: certs.rows });
   }
   if (req.method === 'PUT') {
     const isAdmin = await requireAdmin(userId, db);
@@ -1588,7 +1590,7 @@ async function handleSuppliersExpiring(req: VercelRequest, res: VercelResponse, 
     sql: 'SELECT sc.*, s.name as supplier_name, s.code as supplier_code, s.contact_name, s.email as supplier_email, CAST(julianday(sc.expiry_date) - julianday(\'now\') AS INTEGER) as days_until_expiry FROM supplier_certifications sc JOIN suppliers s ON sc.supplier_id = s.id WHERE s.is_active = 1 AND sc.expiry_date <= date(\'now\', \'+\' || ? || \' days\') AND sc.expiry_date >= date(\'now\', \'-30 days\') ORDER BY sc.expiry_date',
     args: [days],
   });
-  return res.status(200).json(result.rows);
+  return res.status(200).json({ certifications: result.rows });
 }
 
 // ============================================================================
