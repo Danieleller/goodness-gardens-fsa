@@ -1,6 +1,7 @@
 import { createClient } from '@libsql/client';
 
 let client: ReturnType<typeof createClient> | null = null;
+let initialized = false;
 
 export function getDb() {
   if (!client) {
@@ -13,8 +14,10 @@ export function getDb() {
 }
 
 export async function initDb() {
+  if (initialized) return;
   const db = getDb();
-  await db.batch([
+
+  const tables = [
     `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
@@ -110,5 +113,10 @@ export async function initDb() {
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
     )`
-  ], 'write');
+  ];
+
+  for (const sql of tables) {
+    await db.execute(sql);
+  }
+  initialized = true;
 }
