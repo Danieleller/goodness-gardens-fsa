@@ -27,11 +27,13 @@ const inviteSchema = z.object({
   last_name: z.string().min(1),
   organization_name: z.string().optional().default(''),
   temp_password: z.string().min(6),
+  facility_id: z.number().nullable().optional(),
 });
 
 const adminUpdateSchema = z.object({
   role: z.enum(['farmer', 'supervisor', 'admin']).optional(),
   is_active: z.number().min(0).max(1).optional(),
+  facility_id: z.number().nullable().optional(),
 });
 
 const resetPasswordSchema = z.object({
@@ -913,7 +915,12 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
   if (isCollection) {
     if (req.method === 'GET') {
       const result = await db.execute({
-        sql: 'SELECT id, email, first_name, last_name, organization_name, role, is_active, created_at FROM users ORDER BY created_at DESC',
+        sql: `SELECT u.id, u.email, u.first_name, u.last_name, u.organization_name, u.role, u.is_active, u.created_at,
+              uf.facility_id, f.name as facility_name, f.code as facility_code
+              FROM users u
+              LEFT JOIN user_facilities uf ON u.id = uf.user_id
+              LEFT JOIN facilities f ON uf.facility_id = f.id
+              ORDER BY u.created_at DESC`,
         args: [],
       });
       return res.status(200).json(result.rows);
@@ -925,7 +932,7 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
         return res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
       }
 
-      const { email, first_name, last_name, organization_name, temp_password } = parsed.data;
+      const { email, first_name, last_name, organization_name, temp_password, facility_id } = parsed.data;
 
       const existing = await db.execute({
         sql: 'SELECT id FROM users WHERE email = ?',
@@ -942,12 +949,23 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
         args: [email, passwordHash, first_name, last_name, organization_name],
       });
 
+      const newUserId = Number(result.lastInsertRowid);
+
+      // Assign facility if provided (null means Organization / All Facilities)
+      if (facility_id) {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO user_facilities (user_id, facility_id, role) VALUES (?, ?, ?)',
+          args: [newUserId, facility_id, 'worker'],
+        });
+      }
+
       return res.status(201).json({
-        id: Number(result.lastInsertRowid),
+        id: newUserId,
         email,
         first_name,
         last_name,
         organization_name,
+        facility_id: facility_id || null,
         role: 'farmer',
         is_active: 1,
         message: 'User invited successfully',
@@ -972,7 +990,23 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const { role, is_active } = parsed.data;
+    const { role, is_active, facility_id } = parsed.data;
+
+    // Handle facility assignment change
+    if (facility_id !== undefined) {
+      // Remove existing facility assignments
+      await db.execute({
+        sql: 'DELETE FROM user_facilities WHERE user_id = ?',
+        args: [targetId],
+      });
+      // Assign new facility (null = Organization / All Facilities — no row needed)
+      if (facility_id !== null) {
+        await db.execute({
+          sql: 'INSERT INTO user_facilities (user_id, facility_id, role) VALUES (?, ?, ?)',
+          args: [targetId, facility_id, 'worker'],
+        });
+      }
+    }
 
     // Prevent removing the last admin
     if (role && role !== 'admin' && (userCheck.rows[0] as any).role === 'admin') {
@@ -1018,7 +1052,12 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
     });
 
     const updated = await db.execute({
-      sql: 'SELECT id, email, first_name, last_name, organization_name, role, is_active, created_at FROM users WHERE id = ?',
+      sql: `SELECT u.id, u.email, u.first_name, u.last_name, u.organization_name, u.role, u.is_active, u.created_at,
+            uf.facility_id, f.name as facility_name, f.code as facility_code
+            FROM users u
+            LEFT JOIN user_facilities uf ON u.id = uf.user_id
+            LEFT JOIN facilities f ON uf.facility_id = f.id
+            WHERE u.id = ?`,
       args: [targetId],
     });
 

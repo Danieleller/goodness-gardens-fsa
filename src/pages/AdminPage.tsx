@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
-import { UserPlus, RotateCcw, UserX, UserCheck, Shield, ShieldOff, AlertCircle, X, Check, Mail, Copy, ChevronDown } from 'lucide-react';
-import { adminAPI } from '@/api';
+import { UserPlus, RotateCcw, UserX, UserCheck, Shield, ShieldOff, AlertCircle, X, Check, Mail, Copy, ChevronDown, Building2, MapPin } from 'lucide-react';
+import { adminAPI, facilitiesAPI } from '@/api';
+
+interface Facility {
+  id: number;
+  code: string;
+  name: string;
+  location: string;
+  facility_type: string;
+}
 
 interface ManagedUser {
   id: number;
@@ -11,6 +19,9 @@ interface ManagedUser {
   role: string;
   is_active: number;
   created_at: string;
+  facility_id: number | null;
+  facility_name: string | null;
+  facility_code: string | null;
 }
 
 const ROLES = [
@@ -23,6 +34,7 @@ const APP_URL = 'https://goodness-gardens-fsa.vercel.app';
 
 export function AdminPage() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -30,7 +42,7 @@ export function AdminPage() {
   // Invite form
   const [showInvite, setShowInvite] = useState(false);
   const [inviteData, setInviteData] = useState({
-    first_name: '', last_name: '', email: '', temp_password: '', organization_name: '', role: 'farmer',
+    first_name: '', last_name: '', email: '', temp_password: '', organization_name: 'Goodness Gardens', role: 'farmer', facility_id: '' as string,
   });
   const [inviteLoading, setInviteLoading] = useState(false);
 
@@ -42,8 +54,9 @@ export function AdminPage() {
   const [resetPassword, setResetPassword] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
 
-  // Role dropdown
+  // Dropdowns
   const [roleDropdownId, setRoleDropdownId] = useState<number | null>(null);
+  const [facilityDropdownId, setFacilityDropdownId] = useState<number | null>(null);
 
   const fetchUsers = async () => {
     try {
@@ -57,7 +70,16 @@ export function AdminPage() {
     }
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  const fetchFacilities = async () => {
+    try {
+      const response = await facilitiesAPI.getAll();
+      setFacilities(response.data.facilities || []);
+    } catch (err: any) {
+      console.error('Failed to load facilities', err);
+    }
+  };
+
+  useEffect(() => { fetchUsers(); fetchFacilities(); }, []);
 
   const showMessage = (msg: string, isError = false) => {
     if (isError) { setError(msg); setSuccess(''); }
@@ -69,7 +91,15 @@ export function AdminPage() {
     e.preventDefault();
     setInviteLoading(true);
     try {
-      await adminAPI.users.create(inviteData);
+      const payload: any = {
+        first_name: inviteData.first_name,
+        last_name: inviteData.last_name,
+        email: inviteData.email,
+        temp_password: inviteData.temp_password,
+        organization_name: inviteData.organization_name,
+        facility_id: inviteData.facility_id ? Number(inviteData.facility_id) : null,
+      };
+      await adminAPI.users.create(payload);
       // If a role other than farmer was selected, update it
       if (inviteData.role !== 'farmer') {
         const refreshed = await adminAPI.users.getAll();
@@ -84,7 +114,7 @@ export function AdminPage() {
         name: `${inviteData.first_name} ${inviteData.last_name}`,
       });
       setShowInvite(false);
-      setInviteData({ first_name: '', last_name: '', email: '', temp_password: '', organization_name: '', role: 'farmer' });
+      setInviteData({ first_name: '', last_name: '', email: '', temp_password: '', organization_name: 'Goodness Gardens', role: 'farmer', facility_id: '' });
       fetchUsers();
     } catch (err: any) {
       showMessage(err.response?.data?.error || 'Failed to invite user', true);
@@ -112,6 +142,20 @@ export function AdminPage() {
       fetchUsers();
     } catch (err: any) {
       showMessage(err.response?.data?.error || 'Failed to update role', true);
+    }
+  };
+
+  const handleChangeFacility = async (user: ManagedUser, newFacilityId: number | null) => {
+    try {
+      await adminAPI.users.update(user.id, { facility_id: newFacilityId });
+      const facilityLabel = newFacilityId
+        ? facilities.find(f => f.id === newFacilityId)?.name || 'facility'
+        : 'Organization (All Facilities)';
+      showMessage(`${user.first_name} assigned to ${facilityLabel}`);
+      setFacilityDropdownId(null);
+      fetchUsers();
+    } catch (err: any) {
+      showMessage(err.response?.data?.error || 'Failed to update facility', true);
     }
   };
 
@@ -169,6 +213,13 @@ export function AdminPage() {
   };
 
   const getRoleInfo = (role: string) => ROLES.find(r => r.value === role) || ROLES[0];
+
+  const getFacilityLabel = (user: ManagedUser) => {
+    if (user.facility_id && user.facility_name) {
+      return { label: user.facility_name, code: user.facility_code, isOrg: false };
+    }
+    return { label: 'Organization', code: 'ALL', isOrg: true };
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -292,6 +343,22 @@ export function AdminPage() {
               />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Facility Assignment</label>
+              <select
+                value={inviteData.facility_id}
+                onChange={(e) => setInviteData({ ...inviteData, facility_id: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+              >
+                <option value="">Organization (All Facilities)</option>
+                {facilities.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name} — {f.facility_type}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                "Organization" gives access to all facilities (for directors). A specific facility limits their view.
+              </p>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
               <select
                 value={inviteData.role}
@@ -302,15 +369,6 @@ export function AdminPage() {
                 <option value="supervisor">Supervisor (can sign off checklists)</option>
                 <option value="admin">Admin (full access, manage users)</option>
               </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Organization (Optional)</label>
-              <input
-                type="text"
-                value={inviteData.organization_name}
-                onChange={(e) => setInviteData({ ...inviteData, organization_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              />
             </div>
             <div className="md:col-span-2 flex gap-3">
               <button
@@ -379,7 +437,7 @@ export function AdminPage() {
                 <tr>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Name</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Email</th>
-                  <th className="text-left px-4 py-3 text-sm font-medium text-gray-600 hidden md:table-cell">Organization</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-gray-600 hidden md:table-cell">Facility</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Role</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Status</th>
                   <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">Actions</th>
@@ -388,14 +446,67 @@ export function AdminPage() {
               <tbody className="divide-y">
                 {users.map((u) => {
                   const roleInfo = getRoleInfo(u.role);
+                  const facilityInfo = getFacilityLabel(u);
                   return (
                     <tr key={u.id} className={!u.is_active ? 'bg-gray-50 opacity-60' : ''}>
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{u.first_name} {u.last_name}</div>
-                        <div className="text-xs text-gray-500 md:hidden">{u.organization_name}</div>
+                        <div className="text-xs text-gray-500 md:hidden">
+                          {facilityInfo.isOrg ? 'Organization' : facilityInfo.label}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{u.email}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">{u.organization_name || '—'}</td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <div className="relative">
+                          <button
+                            onClick={() => setFacilityDropdownId(facilityDropdownId === u.id ? null : u.id)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition hover:opacity-80 ${
+                              facilityInfo.isOrg
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}
+                            title="Click to change facility"
+                          >
+                            {facilityInfo.isOrg ? <Building2 size={12} /> : <MapPin size={12} />}
+                            {facilityInfo.isOrg ? 'Organization' : facilityInfo.label}
+                            <ChevronDown size={10} />
+                          </button>
+                          {facilityDropdownId === u.id && (
+                            <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[220px]">
+                              <button
+                                onClick={() => handleChangeFacility(u, null)}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${
+                                  !u.facility_id ? 'font-semibold bg-gray-50' : ''
+                                }`}
+                              >
+                                <Building2 size={14} className="text-emerald-600" />
+                                <div>
+                                  <div>Organization (All Facilities)</div>
+                                  <div className="text-xs text-gray-400">Full access — directors</div>
+                                </div>
+                                {!u.facility_id && <Check size={14} className="ml-auto text-green-600" />}
+                              </button>
+                              <div className="border-t border-gray-100 my-1" />
+                              {facilities.map((f) => (
+                                <button
+                                  key={f.id}
+                                  onClick={() => handleChangeFacility(u, f.id)}
+                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${
+                                    u.facility_id === f.id ? 'font-semibold bg-gray-50' : ''
+                                  }`}
+                                >
+                                  <MapPin size={14} className="text-gray-400" />
+                                  <div>
+                                    <div>{f.name}</div>
+                                    <div className="text-xs text-gray-400">{f.facility_type}</div>
+                                  </div>
+                                  {u.facility_id === f.id && <Check size={14} className="ml-auto text-green-600" />}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3">
                         <div className="relative">
                           <button
