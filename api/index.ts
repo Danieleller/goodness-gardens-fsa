@@ -1697,37 +1697,54 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
   }
 
   try {
-    // Execute the saved search via NetSuite REST API
-    // The saved search customsearch_supply_master_fsqa (internal ID: 5186) is the data collector
-    // Endpoint: /services/rest/record/v1/search/savedsearch/{id}
-    // Valid params: fields, expand, expandSubResources, simpleEnumFormat (NO limit/offset)
-    const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/search/savedsearch/5186`;
+    // SuiteQL query matching the saved search customsearch_supply_master_fsqa
+    // Gets Item Receipts grouped by vendor with type and last transaction date
+    const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
-    // No query params for this endpoint - it returns all results from the saved search
-    const authHeader = generateNetSuiteOAuth('GET', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret);
+    const query = `
+      SELECT
+        BUILTIN.DF(Transaction.entity) AS vendor,
+        MAX(Transaction.trandate) AS last_transaction,
+        Transaction.entity AS vendor_id
+      FROM Transaction
+      INNER JOIN TransactionLine ON TransactionLine.transaction = Transaction.id
+      WHERE Transaction.type = 'ItemRcpt'
+        AND TransactionLine.mainline = 'F'
+        AND TransactionLine.taxline = 'F'
+        AND TransactionLine.quantity > 0
+        AND Transaction.trandate >= ADD_MONTHS(TRUNC(SYSDATE, 'YEAR'), 0)
+      GROUP BY Transaction.entity, BUILTIN.DF(Transaction.entity)
+      ORDER BY BUILTIN.DF(Transaction.entity) ASC
+    `;
 
-    console.log('Fetching saved search 5186:', baseUrl);
+    const queryParams: Record<string, string> = { limit: '200', offset: '0' };
+    const authHeader = generateNetSuiteOAuth('POST', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
 
-    const response = await fetch(baseUrl, {
-      method: 'GET',
+    const urlWithParams = new URL(baseUrl);
+    urlWithParams.searchParams.append('limit', '200');
+    urlWithParams.searchParams.append('offset', '0');
+
+    const response = await fetch(urlWithParams.toString(), {
+      method: 'POST',
       headers: {
         Authorization: authHeader,
         'Content-Type': 'application/json',
+        Prefer: 'transient',
       },
+      body: JSON.stringify({ q: query }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('NetSuite saved search error:', response.status, errorText);
+      console.error('NetSuite SuiteQL error:', response.status, errorText);
       return res.status(response.status).json({
-        error: 'NetSuite saved search error',
+        error: 'NetSuite API error',
         status: response.status,
         details: errorText,
       });
     }
 
     const data = await response.json();
-    console.log('Saved search succeeded, keys:', Object.keys(data));
     return res.status(200).json(data);
   } catch (error) {
     console.error('NetSuite request failed:', error);
