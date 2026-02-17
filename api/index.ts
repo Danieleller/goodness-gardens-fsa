@@ -1771,6 +1771,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await handleSuppliers(req, res, db, userId, pathArray[1], pathArray[2]);
     }
 
+    // CALENDAR EVENTS (deadlines, cert expirations, CAPA due dates)
+    if (pathArray[0] === 'calendar') {
+      const days = Number(req.query?.days) || 90;
+      // Supplier cert expirations (next N days + recently expired)
+      const certs = await db.execute({
+        sql: `SELECT sc.id, sc.cert_type, sc.cert_name, sc.expiry_date, s.name as supplier_name, s.code as supplier_code,
+              CAST(julianday(sc.expiry_date) - julianday('now') AS INTEGER) as days_until
+              FROM supplier_certifications sc
+              JOIN suppliers s ON sc.supplier_id = s.id
+              WHERE s.is_active = 1
+              AND sc.expiry_date BETWEEN date('now', '-14 days') AND date('now', '+' || ? || ' days')
+              ORDER BY sc.expiry_date`,
+        args: [days],
+      });
+      // CAPA due dates (open corrective actions)
+      const capas = await db.execute({
+        sql: `SELECT ca.id, ca.action_description, ca.responsible_party, ca.target_completion_date, ca.status,
+              n.finding_category, n.severity
+              FROM corrective_actions ca
+              JOIN nonconformances n ON ca.nonconformance_id = n.id
+              WHERE ca.status IN ('open', 'in_progress')
+              AND ca.target_completion_date IS NOT NULL
+              AND ca.target_completion_date BETWEEN date('now', '-14 days') AND date('now', '+' || ? || ' days')
+              ORDER BY ca.target_completion_date`,
+        args: [days],
+      });
+      // Chemical storage expirations
+      const chemicals = await db.execute({
+        sql: `SELECT cs.id, cs.product_name, cs.expiration_date, cs.storage_location, cs.quantity_stored, cs.quantity_unit
+              FROM chemical_storage cs
+              WHERE cs.expiration_date IS NOT NULL
+              AND cs.expiration_date BETWEEN date('now', '-14 days') AND date('now', '+' || ? || ' days')
+              ORDER BY cs.expiration_date`,
+        args: [days],
+      });
+      return res.status(200).json({
+        certExpirations: certs.rows,
+        capaDueDates: capas.rows,
+        chemicalExpirations: chemicals.rows,
+      });
+    }
+
     return res.status(404).json({ error: 'Not found' });
   } catch (error) {
     console.error('API error:', error);

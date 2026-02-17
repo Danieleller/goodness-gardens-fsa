@@ -162,3 +162,7 @@ export const suppliersAPI = {
   },
   expiring: (days?: number) => api.get('/suppliers/expiring', { params: { days: days || 30 } }),
 };
+
+export const calendarAPI = {
+  getEvents: (days?: number) => api.get('/calendar', { params: { days: days || 90 } }),
+};
