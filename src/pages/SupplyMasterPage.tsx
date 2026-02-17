@@ -34,32 +34,32 @@ export function SupplyMasterPage() {
     try {
       const offset = currentPage * pageSize;
       const response = await netsuiteAPI.supplyMaster({ limit: pageSize, offset });
+      const d = response.data;
 
-      if (response.data.records) {
-        setData(response.data.records);
-
-        if (response.data.records.length > 0) {
-          const recordColumns = Object.keys(response.data.records[0]).filter(
-            (col) => !col.startsWith('_') && col !== 'id'
-          );
-          setColumns(recordColumns);
-        }
-
-        if (response.data.totalResults) {
-          setTotalResults(response.data.totalResults);
-        }
-      } else if (Array.isArray(response.data)) {
-        setData(response.data);
-        if (response.data.length > 0) {
-          const recordColumns = Object.keys(response.data[0]).filter(
-            (col) => !col.startsWith('_') && col !== 'id'
-          );
-          setColumns(recordColumns);
-        }
+      // Handle SuiteQL response format (items array) or records format
+      const records = d.items || d.records || (Array.isArray(d) ? d : []);
+      if (records.length > 0) {
+        setData(records);
+        const recordColumns = Object.keys(records[0]).filter(
+          (col) => !col.startsWith('_') && col !== 'links'
+        );
+        setColumns(recordColumns);
+      } else {
+        setData([]);
       }
-    } catch (err) {
+
+      if (d.totalResults != null) {
+        setTotalResults(d.totalResults);
+      } else if (d.count != null) {
+        setTotalResults(d.count);
+      } else {
+        setTotalResults(records.length);
+      }
+    } catch (err: any) {
       console.error('Failed to fetch supply master data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load supply master data');
+      // Don't let NetSuite errors trigger our auth logout
+      const msg = err?.response?.data?.details || err?.response?.data?.error || (err instanceof Error ? err.message : 'Failed to load supply master data');
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setLoading(false);
     }

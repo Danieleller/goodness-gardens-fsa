@@ -19,7 +19,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Only logout on 401 from our own auth endpoints, not from proxied APIs like NetSuite
+    const url = error.config?.url || '';
+    const isProxiedApi = url.includes('/netsuite/');
+    if (error.response?.status === 401 && !isProxiedApi) {
       useAuthStore.getState().logout();
       window.location.href = '/login';
     }

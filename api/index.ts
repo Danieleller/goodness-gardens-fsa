@@ -1651,12 +1651,13 @@ function generateNetSuiteOAuth(
   consumerKey: string,
   consumerSecret: string,
   tokenId: string,
-  tokenSecret: string
+  tokenSecret: string,
+  queryParams?: Record<string, string>
 ): string {
   const nonce = crypto.randomBytes(16).toString('hex');
   const timestamp = Math.floor(Date.now() / 1000).toString();
 
-  const params: Record<string, string> = {
+  const oauthParams: Record<string, string> = {
     oauth_consumer_key: consumerKey,
     oauth_nonce: nonce,
     oauth_signature_method: 'HMAC-SHA256',
@@ -1665,9 +1666,12 @@ function generateNetSuiteOAuth(
     oauth_version: '1.0',
   };
 
-  const sortedParams = Object.keys(params)
+  // Combine OAuth params with query params for signature base string
+  const allParams: Record<string, string> = { ...oauthParams, ...(queryParams || {}) };
+
+  const sortedParams = Object.keys(allParams)
     .sort()
-    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`)
     .join('&');
 
   const baseString = `${method.toUpperCase()}&${encodeURIComponent(url)}&${encodeURIComponent(sortedParams)}`;
@@ -1692,29 +1696,72 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
     return res.status(500).json({ error: 'NetSuite credentials not configured' });
   }
 
-  const searchId = 'customsearch_supply_master_fsqa';
   const limit = req.query.limit ? Number(req.query.limit) : 100;
   const offset = req.query.offset ? Number(req.query.offset) : 0;
 
   try {
-    const url = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/search/savedsearch/${searchId}`;
-    const authHeader = generateNetSuiteOAuth('GET', url, accountId, consumerKey, consumerSecret, tokenId, tokenSecret);
+    // Use SuiteQL to execute the saved search query
+    const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
-    const urlWithParams = new URL(url);
+    // Build SuiteQL query that runs the saved search
+    const query = `SELECT * FROM SAVED_SEARCH('customsearch_supply_master_fsqa')`;
+
+    const queryParams: Record<string, string> = {
+      limit: String(limit),
+      offset: String(offset),
+    };
+
+    const authHeader = generateNetSuiteOAuth('POST', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
+
+    const urlWithParams = new URL(baseUrl);
     urlWithParams.searchParams.append('limit', String(limit));
     urlWithParams.searchParams.append('offset', String(offset));
 
     const response = await fetch(urlWithParams.toString(), {
-      method: 'GET',
+      method: 'POST',
       headers: {
         Authorization: authHeader,
         'Content-Type': 'application/json',
+        Prefer: 'transient',
       },
+      body: JSON.stringify({ q: query }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('NetSuite API error:', response.status, errorText);
+      console.error('NetSuite SuiteQL error:', response.status, errorText);
+
+      // If SuiteQL saved search fails, try direct SuiteQL with a simple query
+      if (response.status === 400 || response.status === 404) {
+        console.log('Trying fallback SuiteQL query...');
+        const fallbackQuery = `SELECT id, entityid AS name, companyname, email, phone, category, subsidiary, isinactive FROM vendor WHERE isinactive = 'F' ORDER BY companyname ASC`;
+
+        const fallbackAuthHeader = generateNetSuiteOAuth('POST', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
+
+        const fallbackResponse = await fetch(urlWithParams.toString(), {
+          method: 'POST',
+          headers: {
+            Authorization: fallbackAuthHeader,
+            'Content-Type': 'application/json',
+            Prefer: 'transient',
+          },
+          body: JSON.stringify({ q: fallbackQuery }),
+        });
+
+        if (!fallbackResponse.ok) {
+          const fallbackError = await fallbackResponse.text();
+          console.error('NetSuite fallback SuiteQL error:', fallbackResponse.status, fallbackError);
+          return res.status(fallbackResponse.status).json({
+            error: 'NetSuite API error',
+            status: fallbackResponse.status,
+            details: fallbackError,
+          });
+        }
+
+        const fallbackData = await fallbackResponse.json();
+        return res.status(200).json(fallbackData);
+      }
+
       return res.status(response.status).json({
         error: 'NetSuite API error',
         status: response.status,
