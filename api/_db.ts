@@ -410,21 +410,9 @@ async function seedDb() {
     for (const [code, data] of Object.entries(internalIdMap)) {
       await db.execute({ sql: 'UPDATE facilities SET internal_id = ?, location = ? WHERE code = ? AND (internal_id IS NULL OR internal_id != ?)', args: [data.internal_id, data.location, code, data.internal_id] });
     }
-    // Add new facilities if they don't exist
-    const newFacilities = [
-      { code: 'CORP', internal_id: 28, name: 'Corporate', location: 'New York, NY', facility_type: 'Corporate Office', m1: 1, m2: 0, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: '' },
-      { code: 'GH', internal_id: 32, name: 'Greenhouse', location: 'New York, NY', facility_type: 'Indoor Ag', m1: 1, m2: 0, m3: 1, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: 'Grower' },
-      { code: 'TV', internal_id: 39, name: 'Taylorville', location: 'Taylorville, IL', facility_type: 'Indoor Ag + Packing', m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
-      { code: 'PU', internal_id: 48, name: 'Puebla', location: 'Puebla, MX', facility_type: 'Growing', m1: 1, m2: 1, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: 'Grower' },
-    ];
-    for (const f of newFacilities) {
-      const exists = await db.execute({ sql: 'SELECT id FROM facilities WHERE code = ?', args: [f.code] });
-      if (exists.rows.length === 0) {
-        await db.execute({
-          sql: `INSERT INTO facilities (internal_id, code, name, location, facility_type, m1_fsms, m2_farm, m3_indoor_ag, m4_harvest, m5_facility, m6_haccp, m7_prev_controls, m8_grains, m9_ipm, organic_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [f.internal_id, f.code, f.name, f.location, f.facility_type, f.m1, f.m2, f.m3, f.m4, f.m5, f.m6, f.m7, f.m8, f.m9, f.organic],
-        });
-      }
+    // Clean up: remove facilities that were added by mistake
+    for (const code of ['CORP', 'GH', 'TV', 'PU']) {
+      await db.execute({ sql: 'DELETE FROM facilities WHERE code = ?', args: [code] });
     }
     seedData = true;
     return;
@@ -439,10 +427,6 @@ async function seedDb() {
     { code: 'SA', name: 'San Antonio', location: 'San Antonio, TX', facility_type: 'Packing/Handling', internal_id: 31, m1: 1, m2: 0, m3: 0, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 0, organic: 'Handler' },
     { code: 'PE', name: 'Pearsall', location: 'Pearsall, TX', facility_type: 'Growing + Indoor Ag', internal_id: 37, m1: 1, m2: 1, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower' },
     { code: 'IN', name: 'Indiana', location: 'Francesville, IN', facility_type: 'Indoor Ag + Packing', internal_id: 38, m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
-    { code: 'CORP', name: 'Corporate', location: 'New York, NY', facility_type: 'Corporate Office', internal_id: 28, m1: 1, m2: 0, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: '' },
-    { code: 'GH', name: 'Greenhouse', location: 'New York, NY', facility_type: 'Indoor Ag', internal_id: 32, m1: 1, m2: 0, m3: 1, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: 'Grower' },
-    { code: 'TV', name: 'Taylorville', location: 'Taylorville, IL', facility_type: 'Indoor Ag + Packing', internal_id: 39, m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
-    { code: 'PU', name: 'Puebla', location: 'Puebla, MX', facility_type: 'Growing', internal_id: 48, m1: 1, m2: 1, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: 'Grower' },
   ];
 
   const facilityIds: { [key: string]: number } = {};
