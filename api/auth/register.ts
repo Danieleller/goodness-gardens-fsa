@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import bcryptjs from 'bcryptjs';
 import { z } from 'zod';
-import { getDb, initDb } from '../_db';
-import { signToken } from '../_auth';
+import { getDb, initDb } from '../_db.js';
+import { signToken } from '../_auth.js';
 
 const registerSchema = z.object({
   email: z.string().email(),

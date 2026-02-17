@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getDb, initDb } from '../_db';
-import { verifyToken } from '../_auth';
+import { getDb, initDb } from '../_db.js';
+import { verifyToken } from '../_auth.js';
 
 function convertToCSV(headers: string[], rows: any[]): string {
   const csvHeaders = headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(',');
