@@ -32,7 +32,7 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-xl p-8">
           <div className="flex justify-center mb-6">
-            <img src="/nobackground-Goodness%20Gardens%20(630x630)%20(1).png" alt="Goodness Gardens" className="h-24 w-auto" />
+            <img src="/nobackgound-Goodness%20Gardens%20(630x630)%20(1).png" alt="Goodness Gardens" className="h-24 w-auto" />
           </div>
 
           <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
