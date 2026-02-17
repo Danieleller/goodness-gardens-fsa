@@ -1700,66 +1700,70 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
   const offset = req.query.offset ? Number(req.query.offset) : 0;
 
   try {
-    // Use SuiteQL to query vendor/supplier data
-    const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
-
-    // Query vendor records - use table-qualified column names
-    const query = `SELECT vendor.id, vendor.entityid, vendor.companyname, vendor.email, vendor.phone, vendor.isinactive FROM vendor ORDER BY vendor.companyname ASC`;
+    // Execute the saved search via NetSuite REST API
+    // The saved search customsearch_supply_master_fsqa (internal ID: 5186) is the data collector
+    const searchId = 'customsearch_supply_master_fsqa';
+    const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/inventoryitem`;
 
     const queryParams: Record<string, string> = {
+      savedSearch: searchId,
       limit: String(limit),
       offset: String(offset),
     };
 
-    const authHeader = generateNetSuiteOAuth('POST', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
+    const authHeader = generateNetSuiteOAuth('GET', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
 
     const urlWithParams = new URL(baseUrl);
+    urlWithParams.searchParams.append('savedSearch', searchId);
     urlWithParams.searchParams.append('limit', String(limit));
     urlWithParams.searchParams.append('offset', String(offset));
 
+    console.log('Fetching saved search:', urlWithParams.toString());
+
     const response = await fetch(urlWithParams.toString(), {
-      method: 'POST',
+      method: 'GET',
       headers: {
         Authorization: authHeader,
         'Content-Type': 'application/json',
-        Prefer: 'transient',
       },
-      body: JSON.stringify({ q: query }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('NetSuite SuiteQL error:', response.status, errorText);
+      console.error('NetSuite saved search error:', response.status, errorText);
 
-      // If first query fails, try even simpler query
-      if (response.status === 400) {
-        console.log('Trying simpler SuiteQL query...');
-        const simpleQuery = `SELECT id, companyname, email, phone FROM vendor`;
+      // If inventoryitem doesn't match the saved search record type, try item
+      if (response.status === 400 || response.status === 404) {
+        console.log('Trying with item record type...');
+        const altBaseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/item`;
 
-        const simpleAuthHeader = generateNetSuiteOAuth('POST', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
+        const altAuthHeader = generateNetSuiteOAuth('GET', altBaseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
 
-        const simpleResponse = await fetch(urlWithParams.toString(), {
-          method: 'POST',
+        const altUrlWithParams = new URL(altBaseUrl);
+        altUrlWithParams.searchParams.append('savedSearch', searchId);
+        altUrlWithParams.searchParams.append('limit', String(limit));
+        altUrlWithParams.searchParams.append('offset', String(offset));
+
+        const altResponse = await fetch(altUrlWithParams.toString(), {
+          method: 'GET',
           headers: {
-            Authorization: simpleAuthHeader,
+            Authorization: altAuthHeader,
             'Content-Type': 'application/json',
-            Prefer: 'transient',
           },
-          body: JSON.stringify({ q: simpleQuery }),
         });
 
-        if (!simpleResponse.ok) {
-          const simpleError = await simpleResponse.text();
-          console.error('NetSuite simple SuiteQL error:', simpleResponse.status, simpleError);
-          return res.status(simpleResponse.status).json({
+        if (!altResponse.ok) {
+          const altError = await altResponse.text();
+          console.error('NetSuite item search error:', altResponse.status, altError);
+          return res.status(altResponse.status).json({
             error: 'NetSuite API error',
-            status: simpleResponse.status,
-            details: simpleError,
+            status: altResponse.status,
+            details: altError,
           });
         }
 
-        const simpleData = await simpleResponse.json();
-        return res.status(200).json(simpleData);
+        const altData = await altResponse.json();
+        return res.status(200).json(altData);
       }
 
       return res.status(response.status).json({
