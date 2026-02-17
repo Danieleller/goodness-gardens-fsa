@@ -14,8 +14,8 @@ export function getDb() {
 
 export async function initDb() {
   const db = getDb();
-  await db.executeMultiple(`
-    CREATE TABLE IF NOT EXISTS users (
+  await db.batch([
+    `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
@@ -25,8 +25,8 @@ export async function initDb() {
       role TEXT DEFAULT 'farmer',
       created_at TEXT DEFAULT (datetime('now')),
       is_active INTEGER DEFAULT 1
-    );
-    CREATE TABLE IF NOT EXISTS pre_harvest_logs (
+    )`,
+    `CREATE TABLE IF NOT EXISTS pre_harvest_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       log_type TEXT NOT NULL,
@@ -42,8 +42,8 @@ export async function initDb() {
       notes TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS chemical_applications (
+    )`,
+    `CREATE TABLE IF NOT EXISTS chemical_applications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       product_name TEXT NOT NULL, active_ingredient TEXT NOT NULL,
@@ -55,8 +55,8 @@ export async function initDb() {
       notes TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS chemical_storage (
+    )`,
+    `CREATE TABLE IF NOT EXISTS chemical_storage (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       product_name TEXT NOT NULL, storage_location TEXT,
@@ -66,8 +66,8 @@ export async function initDb() {
       last_inventory_date TEXT, notes TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS nonconformances (
+    )`,
+    `CREATE TABLE IF NOT EXISTS nonconformances (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       finding_date TEXT NOT NULL, finding_category TEXT NOT NULL,
@@ -76,8 +76,8 @@ export async function initDb() {
       affected_area TEXT, root_cause TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-    CREATE TABLE IF NOT EXISTS corrective_actions (
+    )`,
+    `CREATE TABLE IF NOT EXISTS corrective_actions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       nonconformance_id INTEGER NOT NULL,
@@ -90,8 +90,8 @@ export async function initDb() {
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (nonconformance_id) REFERENCES nonconformances(id)
-    );
-    CREATE TABLE IF NOT EXISTS audit_checklists (
+    )`,
+    `CREATE TABLE IF NOT EXISTS audit_checklists (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       audit_date TEXT NOT NULL, audit_name TEXT NOT NULL,
@@ -109,6 +109,6 @@ export async function initDb() {
       auditor_name TEXT, audit_notes TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-  `);
+    )`
+  ], 'write');
 }
