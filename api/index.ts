@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import bcryptjs from 'bcryptjs';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { getDb, initDb } from './_db.js';
 import { signToken, verifyToken } from './_auth.js';
@@ -1640,6 +1641,99 @@ async function handleSuppliersExpiring(req: VercelRequest, res: VercelResponse, 
 }
 
 // ============================================================================
+// NETSUITE HELPERS & HANDLERS
+// ============================================================================
+
+function generateNetSuiteOAuth(
+  method: string,
+  url: string,
+  accountId: string,
+  consumerKey: string,
+  consumerSecret: string,
+  tokenId: string,
+  tokenSecret: string
+): string {
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+
+  const params: Record<string, string> = {
+    oauth_consumer_key: consumerKey,
+    oauth_nonce: nonce,
+    oauth_signature_method: 'HMAC-SHA256',
+    oauth_timestamp: timestamp,
+    oauth_token: tokenId,
+    oauth_version: '1.0',
+  };
+
+  const sortedParams = Object.keys(params)
+    .sort()
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
+    .join('&');
+
+  const baseString = `${method.toUpperCase()}&${encodeURIComponent(url)}&${encodeURIComponent(sortedParams)}`;
+  const signingKey = `${encodeURIComponent(consumerSecret)}&${encodeURIComponent(tokenSecret)}`;
+  const signature = crypto.createHmac('sha256', signingKey).update(baseString).digest('base64');
+
+  return `OAuth realm="${accountId}",oauth_consumer_key="${consumerKey}",oauth_token="${tokenId}",oauth_nonce="${nonce}",oauth_timestamp="${timestamp}",oauth_signature_method="HMAC-SHA256",oauth_version="1.0",oauth_signature="${encodeURIComponent(signature)}"`;
+}
+
+async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelResponse): Promise<VercelResponse | void> {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const accountId = process.env.NETSUITE_ACCOUNT_ID;
+  const consumerKey = process.env.NETSUITE_CONSUMER_KEY;
+  const consumerSecret = process.env.NETSUITE_CONSUMER_SECRET;
+  const tokenId = process.env.NETSUITE_TOKEN_ID;
+  const tokenSecret = process.env.NETSUITE_TOKEN_SECRET;
+
+  if (!accountId || !consumerKey || !consumerSecret || !tokenId || !tokenSecret) {
+    return res.status(500).json({ error: 'NetSuite credentials not configured' });
+  }
+
+  const searchId = 'customsearch_supply_master_fsqa';
+  const limit = req.query.limit ? Number(req.query.limit) : 100;
+  const offset = req.query.offset ? Number(req.query.offset) : 0;
+
+  try {
+    const url = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/search/savedsearch/${searchId}`;
+    const authHeader = generateNetSuiteOAuth('GET', url, accountId, consumerKey, consumerSecret, tokenId, tokenSecret);
+
+    const urlWithParams = new URL(url);
+    urlWithParams.searchParams.append('limit', String(limit));
+    urlWithParams.searchParams.append('offset', String(offset));
+
+    const response = await fetch(urlWithParams.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('NetSuite API error:', response.status, errorText);
+      return res.status(response.status).json({
+        error: 'NetSuite API error',
+        status: response.status,
+        details: errorText,
+      });
+    }
+
+    const data = await response.json();
+    return res.status(200).json(data);
+  } catch (error) {
+    console.error('NetSuite request failed:', error);
+    return res.status(500).json({
+      error: 'Failed to fetch from NetSuite',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
+// ============================================================================
 // MAIN HANDLER
 // ============================================================================
 
@@ -1818,6 +1912,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         capaDueDates: capas.rows,
         chemicalExpirations: chemicals.rows,
       });
+    }
+
+    // NETSUITE INTEGRATION
+    if (pathArray[0] === 'netsuite') {
+      if (pathArray[1] === 'supply-master' && req.method === 'GET') {
+        return await handleNetSuiteSupplyMaster(req, res);
+      }
+      return res.status(404).json({ error: 'NetSuite endpoint not found' });
     }
 
     return res.status(404).json({ error: 'Not found' });

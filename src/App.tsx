@@ -19,6 +19,7 @@ import { SOPHubPage } from '@/pages/SOPHubPage';
 import { GapAnalysisPage } from '@/pages/GapAnalysisPage';
 import { AuditSimulatorPage } from '@/pages/AuditSimulatorPage';
 import { SupplierPage } from '@/pages/SupplierPage';
+import { SupplyMasterPage } from '@/pages/SupplyMasterPage';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
@@ -141,6 +142,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <SupplierPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/supply-master"
+          element={
+            <ProtectedRoute>
+              <SupplyMasterPage />
             </ProtectedRoute>
           }
         />

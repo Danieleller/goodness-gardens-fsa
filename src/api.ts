@@ -166,3 +166,8 @@ export const suppliersAPI = {
 export const calendarAPI = {
   getEvents: (days?: number) => api.get('/calendar', { params: { days: days || 90 } }),
 };
+
+export const netsuiteAPI = {
+  supplyMaster: (params?: { limit?: number; offset?: number }) =>
+    api.get('/netsuite/supply-master', { params }),
+};

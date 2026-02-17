@@ -11,6 +11,7 @@ const navGroups = [
       { to: '/pre-harvest', label: 'Pre-Harvest' },
       { to: '/chemicals', label: 'Chemicals' },
       { to: '/checklists', label: 'Checklists' },
+      { to: '/supply-master', label: 'Supply Master' },
     ],
   },
   {
