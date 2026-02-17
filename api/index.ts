@@ -1599,8 +1599,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     await initDb();
 
-    // Parse path from req.query.path (array of path segments from [[...path]])
-    const pathArray = (req.query.path as string[]) || [];
+    // Parse path from URL - strip /api/ prefix and split into segments
+    const url = req.url || '';
+    const apiPath = url.split('?')[0].replace(/^\/api\/?/, '');
+    const pathArray = apiPath ? apiPath.split('/').filter(Boolean) : [];
 
     // Route based on path segments
     if (pathArray.length === 0) {
