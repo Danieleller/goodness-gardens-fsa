@@ -1700,11 +1700,11 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
   const offset = req.query.offset ? Number(req.query.offset) : 0;
 
   try {
-    // Use SuiteQL to execute the saved search query
+    // Use SuiteQL to query vendor/supplier data
     const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
 
-    // Build SuiteQL query that runs the saved search
-    const query = `SELECT * FROM SAVED_SEARCH('customsearch_supply_master_fsqa')`;
+    // Query vendor records - use table-qualified column names
+    const query = `SELECT vendor.id, vendor.entityid, vendor.companyname, vendor.email, vendor.phone, vendor.isinactive FROM vendor ORDER BY vendor.companyname ASC`;
 
     const queryParams: Record<string, string> = {
       limit: String(limit),
@@ -1731,35 +1731,35 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
       const errorText = await response.text();
       console.error('NetSuite SuiteQL error:', response.status, errorText);
 
-      // If SuiteQL saved search fails, try direct SuiteQL with a simple query
-      if (response.status === 400 || response.status === 404) {
-        console.log('Trying fallback SuiteQL query...');
-        const fallbackQuery = `SELECT id, entityid AS name, companyname, email, phone, category, subsidiary, isinactive FROM vendor WHERE isinactive = 'F' ORDER BY companyname ASC`;
+      // If first query fails, try even simpler query
+      if (response.status === 400) {
+        console.log('Trying simpler SuiteQL query...');
+        const simpleQuery = `SELECT id, companyname, email, phone FROM vendor`;
 
-        const fallbackAuthHeader = generateNetSuiteOAuth('POST', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
+        const simpleAuthHeader = generateNetSuiteOAuth('POST', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
 
-        const fallbackResponse = await fetch(urlWithParams.toString(), {
+        const simpleResponse = await fetch(urlWithParams.toString(), {
           method: 'POST',
           headers: {
-            Authorization: fallbackAuthHeader,
+            Authorization: simpleAuthHeader,
             'Content-Type': 'application/json',
             Prefer: 'transient',
           },
-          body: JSON.stringify({ q: fallbackQuery }),
+          body: JSON.stringify({ q: simpleQuery }),
         });
 
-        if (!fallbackResponse.ok) {
-          const fallbackError = await fallbackResponse.text();
-          console.error('NetSuite fallback SuiteQL error:', fallbackResponse.status, fallbackError);
-          return res.status(fallbackResponse.status).json({
+        if (!simpleResponse.ok) {
+          const simpleError = await simpleResponse.text();
+          console.error('NetSuite simple SuiteQL error:', simpleResponse.status, simpleError);
+          return res.status(simpleResponse.status).json({
             error: 'NetSuite API error',
-            status: fallbackResponse.status,
-            details: fallbackError,
+            status: simpleResponse.status,
+            details: simpleError,
           });
         }
 
-        const fallbackData = await fallbackResponse.json();
-        return res.status(200).json(fallbackData);
+        const simpleData = await simpleResponse.json();
+        return res.status(200).json(simpleData);
       }
 
       return res.status(response.status).json({
