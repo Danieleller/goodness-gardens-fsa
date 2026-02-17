@@ -1702,79 +1702,109 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
   try {
     // Execute the saved search via NetSuite REST API
     // The saved search customsearch_supply_master_fsqa (internal ID: 5186) is the data collector
-    const searchId = 'customsearch_supply_master_fsqa';
-    const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/inventoryitem`;
+    // Try multiple REST API approaches to find the one that works
+
+    // Approach 1: Try the dedicated search endpoint with internal ID
+    const baseUrl1 = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/search/savedsearch/5186`;
 
     const queryParams: Record<string, string> = {
-      savedSearch: searchId,
       limit: String(limit),
       offset: String(offset),
     };
 
-    const authHeader = generateNetSuiteOAuth('GET', baseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
+    const authHeader1 = generateNetSuiteOAuth('GET', baseUrl1, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
 
-    const urlWithParams = new URL(baseUrl);
-    urlWithParams.searchParams.append('savedSearch', searchId);
-    urlWithParams.searchParams.append('limit', String(limit));
-    urlWithParams.searchParams.append('offset', String(offset));
+    const url1 = new URL(baseUrl1);
+    url1.searchParams.append('limit', String(limit));
+    url1.searchParams.append('offset', String(offset));
 
-    console.log('Fetching saved search:', urlWithParams.toString());
+    console.log('Attempt 1 - saved search endpoint:', url1.toString());
 
-    const response = await fetch(urlWithParams.toString(), {
+    const response1 = await fetch(url1.toString(), {
       method: 'GET',
       headers: {
-        Authorization: authHeader,
+        Authorization: authHeader1,
         'Content-Type': 'application/json',
       },
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('NetSuite saved search error:', response.status, errorText);
-
-      // If inventoryitem doesn't match the saved search record type, try item
-      if (response.status === 400 || response.status === 404) {
-        console.log('Trying with item record type...');
-        const altBaseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/item`;
-
-        const altAuthHeader = generateNetSuiteOAuth('GET', altBaseUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
-
-        const altUrlWithParams = new URL(altBaseUrl);
-        altUrlWithParams.searchParams.append('savedSearch', searchId);
-        altUrlWithParams.searchParams.append('limit', String(limit));
-        altUrlWithParams.searchParams.append('offset', String(offset));
-
-        const altResponse = await fetch(altUrlWithParams.toString(), {
-          method: 'GET',
-          headers: {
-            Authorization: altAuthHeader,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!altResponse.ok) {
-          const altError = await altResponse.text();
-          console.error('NetSuite item search error:', altResponse.status, altError);
-          return res.status(altResponse.status).json({
-            error: 'NetSuite API error',
-            status: altResponse.status,
-            details: altError,
-          });
-        }
-
-        const altData = await altResponse.json();
-        return res.status(200).json(altData);
-      }
-
-      return res.status(response.status).json({
-        error: 'NetSuite API error',
-        status: response.status,
-        details: errorText,
-      });
+    if (response1.ok) {
+      const data = await response1.json();
+      console.log('Saved search endpoint succeeded');
+      return res.status(200).json(data);
     }
 
-    const data = await response.json();
-    return res.status(200).json(data);
+    const error1 = await response1.text();
+    console.error('Attempt 1 failed:', response1.status, error1);
+
+    // Approach 2: Try with script ID instead of internal ID
+    const baseUrl2 = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/record/v1/search/savedsearch/customsearch_supply_master_fsqa`;
+
+    const authHeader2 = generateNetSuiteOAuth('GET', baseUrl2, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
+
+    const url2 = new URL(baseUrl2);
+    url2.searchParams.append('limit', String(limit));
+    url2.searchParams.append('offset', String(offset));
+
+    console.log('Attempt 2 - script ID endpoint:', url2.toString());
+
+    const response2 = await fetch(url2.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: authHeader2,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (response2.ok) {
+      const data = await response2.json();
+      console.log('Script ID endpoint succeeded');
+      return res.status(200).json(data);
+    }
+
+    const error2 = await response2.text();
+    console.error('Attempt 2 failed:', response2.status, error2);
+
+    // Approach 3: Try SuiteQL to query the saved search
+    const suiteqlUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql`;
+    const suiteqlQuery = `SELECT * FROM (customsearch_supply_master_fsqa)`;
+
+    const authHeader3 = generateNetSuiteOAuth('POST', suiteqlUrl, accountId, consumerKey, consumerSecret, tokenId, tokenSecret, queryParams);
+
+    const url3 = new URL(suiteqlUrl);
+    url3.searchParams.append('limit', String(limit));
+    url3.searchParams.append('offset', String(offset));
+
+    console.log('Attempt 3 - SuiteQL:', url3.toString());
+
+    const response3 = await fetch(url3.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader3,
+        'Content-Type': 'application/json',
+        Prefer: 'transient',
+      },
+      body: JSON.stringify({ q: suiteqlQuery }),
+    });
+
+    if (response3.ok) {
+      const data = await response3.json();
+      console.log('SuiteQL succeeded');
+      return res.status(200).json(data);
+    }
+
+    const error3 = await response3.text();
+    console.error('Attempt 3 failed:', response3.status, error3);
+
+    // Return most descriptive error
+    return res.status(response1.status).json({
+      error: 'NetSuite saved search error',
+      attempts: [
+        { method: 'REST search/savedsearch/5186', status: response1.status, details: error1 },
+        { method: 'REST search/savedsearch/scriptId', status: response2.status, details: error2 },
+        { method: 'SuiteQL', status: response3.status, details: error3 },
+      ],
+    });
   } catch (error) {
     console.error('NetSuite request failed:', error);
     return res.status(500).json({
