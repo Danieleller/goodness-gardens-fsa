@@ -372,8 +372,8 @@ export function AdminPage() {
       {loading ? (
         <div className="text-center py-12 text-gray-500">Loading users...</div>
       ) : (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="bg-white rounded-lg shadow-md">
+          <div className="overflow-x-visible">
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
