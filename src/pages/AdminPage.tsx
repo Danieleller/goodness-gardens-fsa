@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { UserPlus, RotateCcw, UserX, UserCheck, Shield, ShieldOff, AlertCircle, X, Check, Mail, Copy, ChevronDown, Building2, MapPin } from 'lucide-react';
+import { UserPlus, RotateCcw, UserX, UserCheck, Shield, ShieldOff, AlertCircle, X, Check, Mail, Copy, ChevronDown, Building2, MapPin, Briefcase } from 'lucide-react';
 import { adminAPI, facilitiesAPI } from '@/api';
 
 interface Facility {
@@ -16,6 +16,7 @@ interface ManagedUser {
   first_name: string;
   last_name: string;
   organization_name: string;
+  title: string;
   role: string;
   is_active: number;
   created_at: string;
@@ -42,7 +43,7 @@ export function AdminPage() {
   // Invite form
   const [showInvite, setShowInvite] = useState(false);
   const [inviteData, setInviteData] = useState({
-    first_name: '', last_name: '', email: '', temp_password: '', organization_name: 'Goodness Gardens', role: 'farmer', facility_id: '' as string,
+    first_name: '', last_name: '', email: '', temp_password: '', organization_name: 'Goodness Gardens', title: '', role: 'farmer', facility_id: '' as string,
   });
   const [inviteLoading, setInviteLoading] = useState(false);
 
@@ -97,6 +98,7 @@ export function AdminPage() {
         email: inviteData.email,
         temp_password: inviteData.temp_password,
         organization_name: inviteData.organization_name,
+        title: inviteData.title,
         facility_id: inviteData.facility_id ? Number(inviteData.facility_id) : null,
       };
       await adminAPI.users.create(payload);
@@ -114,7 +116,7 @@ export function AdminPage() {
         name: `${inviteData.first_name} ${inviteData.last_name}`,
       });
       setShowInvite(false);
-      setInviteData({ first_name: '', last_name: '', email: '', temp_password: '', organization_name: 'Goodness Gardens', role: 'farmer', facility_id: '' });
+      setInviteData({ first_name: '', last_name: '', email: '', temp_password: '', organization_name: 'Goodness Gardens', title: '', role: 'farmer', facility_id: '' });
       fetchUsers();
     } catch (err: any) {
       showMessage(err.response?.data?.error || 'Failed to invite user', true);
@@ -142,6 +144,16 @@ export function AdminPage() {
       fetchUsers();
     } catch (err: any) {
       showMessage(err.response?.data?.error || 'Failed to update role', true);
+    }
+  };
+
+  const handleChangeTitle = async (user: ManagedUser, newTitle: string) => {
+    try {
+      await adminAPI.users.update(user.id, { title: newTitle });
+      showMessage(`${user.first_name}'s title updated`);
+      fetchUsers();
+    } catch (err: any) {
+      showMessage(err.response?.data?.error || 'Failed to update title', true);
     }
   };
 
@@ -230,7 +242,8 @@ export function AdminPage() {
         </div>
         <button
           onClick={() => { setShowInvite(!showInvite); setInviteResult(null); }}
-          className="flex items-center gap-2 bg-green-800 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+          className="flex items-center gap-2 text-white px-4 py-2 rounded-lg hover:opacity-90 transition"
+          style={{ backgroundColor: '#1A3A5C' }}
         >
           <UserPlus size={18} />
           Invite User
@@ -248,7 +261,7 @@ export function AdminPage() {
       {success && (
         <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex gap-3 items-center">
           <Check className="text-green-600 flex-shrink-0" size={20} />
-          <p className="text-green-800 text-sm flex-1">{success}</p>
+          <p className="text-blue-900 text-sm flex-1">{success}</p>
           <button onClick={() => setSuccess('')}><X size={16} className="text-green-400" /></button>
         </div>
       )}
@@ -284,14 +297,15 @@ export function AdminPage() {
           <div className="flex gap-3">
             <a
               href={buildMailtoLink(inviteResult.email, inviteResult.password, inviteResult.name)}
-              className="flex items-center gap-2 bg-green-800 text-white px-5 py-2.5 rounded-lg hover:bg-green-700 transition font-medium"
+              className="flex items-center gap-2 text-white px-5 py-2.5 rounded-lg hover:opacity-90 transition font-medium"
+              style={{ backgroundColor: '#1A3A5C' }}
             >
               <Mail size={18} />
               Send Email Invite
             </a>
             <button
               onClick={() => copyCredentials(inviteResult.email, inviteResult.password, inviteResult.name)}
-              className="flex items-center gap-2 bg-white text-green-800 border-2 border-green-800 px-5 py-2.5 rounded-lg hover:bg-green-50 transition font-medium"
+              className="flex items-center gap-2 bg-white text-blue-900 border-2 border-blue-800 px-5 py-2.5 rounded-lg hover:bg-green-50 transition font-medium"
             >
               <Copy size={18} />
               Copy Credentials
@@ -311,7 +325,7 @@ export function AdminPage() {
                 type="text" required
                 value={inviteData.first_name}
                 onChange={(e) => setInviteData({ ...inviteData, first_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
             <div>
@@ -320,7 +334,7 @@ export function AdminPage() {
                 type="text" required
                 value={inviteData.last_name}
                 onChange={(e) => setInviteData({ ...inviteData, last_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
             <div>
@@ -329,7 +343,17 @@ export function AdminPage() {
                 type="email" required
                 value={inviteData.email}
                 onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
+              <input
+                type="text"
+                value={inviteData.title}
+                onChange={(e) => setInviteData({ ...inviteData, title: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="e.g. Food Safety Director, Field Supervisor"
               />
             </div>
             <div>
@@ -338,7 +362,7 @@ export function AdminPage() {
                 type="text" required minLength={6}
                 value={inviteData.temp_password}
                 onChange={(e) => setInviteData({ ...inviteData, temp_password: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Min 6 characters"
               />
             </div>
@@ -347,7 +371,7 @@ export function AdminPage() {
               <select
                 value={inviteData.facility_id}
                 onChange={(e) => setInviteData({ ...inviteData, facility_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               >
                 <option value="">Organization (All Facilities)</option>
                 {facilities.map((f) => (
@@ -363,7 +387,7 @@ export function AdminPage() {
               <select
                 value={inviteData.role}
                 onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               >
                 <option value="farmer">Worker (field worker, basic access)</option>
                 <option value="supervisor">Supervisor (can sign off checklists)</option>
@@ -374,7 +398,8 @@ export function AdminPage() {
               <button
                 type="submit"
                 disabled={inviteLoading}
-                className="bg-green-800 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                className="text-white px-6 py-2 rounded-lg hover:opacity-90 transition disabled:opacity-50"
+                style={{ backgroundColor: '#1A3A5C' }}
               >
                 {inviteLoading ? 'Creating Account...' : 'Create & Invite'}
               </button>
@@ -404,14 +429,15 @@ export function AdminPage() {
               value={resetPassword}
               onChange={(e) => setResetPassword(e.target.value)}
               placeholder="New temporary password (min 6 chars)"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent mb-4"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
               minLength={6}
             />
             <div className="flex gap-3">
               <button
                 onClick={handleResetPassword}
                 disabled={resetPassword.length < 6 || resetLoading}
-                className="bg-green-800 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                className="text-white px-6 py-2 rounded-lg hover:opacity-90 transition disabled:opacity-50"
+                style={{ backgroundColor: '#1A3A5C' }}
               >
                 {resetLoading ? 'Resetting...' : 'Reset Password'}
               </button>
@@ -436,6 +462,7 @@ export function AdminPage() {
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Name</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-gray-600 hidden lg:table-cell">Title</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Email</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600 hidden md:table-cell">Facility</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Role</th>
@@ -451,9 +478,26 @@ export function AdminPage() {
                     <tr key={u.id} className={!u.is_active ? 'bg-gray-50 opacity-60' : ''}>
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{u.first_name} {u.last_name}</div>
+                        <div className="text-xs text-gray-500 lg:hidden">{u.title || '—'}</div>
                         <div className="text-xs text-gray-500 md:hidden">
                           {facilityInfo.isOrg ? 'Organization' : facilityInfo.label}
                         </div>
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        <input
+                          type="text"
+                          defaultValue={u.title || ''}
+                          placeholder="Add title..."
+                          className="text-sm text-gray-600 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none px-1 py-0.5 w-full max-w-[180px]"
+                          onBlur={(e) => {
+                            if (e.target.value !== (u.title || '')) {
+                              handleChangeTitle(u, e.target.value);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                          }}
+                        />
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{u.email}</td>
                       <td className="px-4 py-3 hidden md:table-cell">
@@ -542,7 +586,7 @@ export function AdminPage() {
                           onClick={() => handleToggleActive(u)}
                           className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
                             u.is_active
-                              ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                              ? 'bg-green-100 text-blue-900 hover:bg-green-200'
                               : 'bg-red-100 text-red-800 hover:bg-red-200'
                           } transition`}
                           title={`Click to ${u.is_active ? 'deactivate' : 'activate'}`}

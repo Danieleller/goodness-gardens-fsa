@@ -26,6 +26,7 @@ const inviteSchema = z.object({
   first_name: z.string().min(1),
   last_name: z.string().min(1),
   organization_name: z.string().optional().default(''),
+  title: z.string().optional().default(''),
   temp_password: z.string().min(6),
   facility_id: z.number().nullable().optional(),
 });
@@ -34,6 +35,7 @@ const adminUpdateSchema = z.object({
   role: z.enum(['farmer', 'supervisor', 'admin']).optional(),
   is_active: z.number().min(0).max(1).optional(),
   facility_id: z.number().nullable().optional(),
+  title: z.string().optional(),
 });
 
 const resetPasswordSchema = z.object({
@@ -78,7 +80,7 @@ async function handleAuthLogin(req: VercelRequest, res: VercelResponse, db: any)
   const { email, password } = parsed.data;
 
   const result = await db.execute({
-    sql: 'SELECT id, email, password_hash, first_name, last_name, organization_name, role, is_active FROM users WHERE email = ?',
+    sql: 'SELECT id, email, password_hash, first_name, last_name, organization_name, title, role, is_active FROM users WHERE email = ?',
     args: [email],
   });
 
@@ -107,6 +109,7 @@ async function handleAuthLogin(req: VercelRequest, res: VercelResponse, db: any)
       first_name: user.first_name,
       last_name: user.last_name,
       organization_name: user.organization_name,
+      title: user.title || '',
       role: user.role,
     },
   });
@@ -915,7 +918,7 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
   if (isCollection) {
     if (req.method === 'GET') {
       const result = await db.execute({
-        sql: `SELECT u.id, u.email, u.first_name, u.last_name, u.organization_name, u.role, u.is_active, u.created_at,
+        sql: `SELECT u.id, u.email, u.first_name, u.last_name, u.organization_name, u.title, u.role, u.is_active, u.created_at,
               uf.facility_id, f.name as facility_name, f.code as facility_code
               FROM users u
               LEFT JOIN user_facilities uf ON u.id = uf.user_id
@@ -932,7 +935,7 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
         return res.status(400).json({ error: 'Invalid input', details: parsed.error.errors });
       }
 
-      const { email, first_name, last_name, organization_name, temp_password, facility_id } = parsed.data;
+      const { email, first_name, last_name, organization_name, title, temp_password, facility_id } = parsed.data;
 
       const existing = await db.execute({
         sql: 'SELECT id FROM users WHERE email = ?',
@@ -944,9 +947,9 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
 
       const passwordHash = await bcryptjs.hash(temp_password, 10);
       const result = await db.execute({
-        sql: `INSERT INTO users (email, password_hash, first_name, last_name, organization_name, role, is_active)
-              VALUES (?, ?, ?, ?, ?, 'farmer', 1)`,
-        args: [email, passwordHash, first_name, last_name, organization_name],
+        sql: `INSERT INTO users (email, password_hash, first_name, last_name, organization_name, title, role, is_active)
+              VALUES (?, ?, ?, ?, ?, ?, 'farmer', 1)`,
+        args: [email, passwordHash, first_name, last_name, organization_name, title],
       });
 
       const newUserId = Number(result.lastInsertRowid);
@@ -990,7 +993,7 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const { role, is_active, facility_id } = parsed.data;
+    const { role, is_active, facility_id, title } = parsed.data;
 
     // Handle facility assignment change
     if (facility_id !== undefined) {
@@ -1040,8 +1043,12 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
       updates.push('is_active = ?');
       args.push(is_active);
     }
+    if (title !== undefined) {
+      updates.push('title = ?');
+      args.push(title);
+    }
 
-    if (updates.length === 0) {
+    if (updates.length === 0 && facility_id === undefined) {
       return res.status(400).json({ error: 'No updates provided' });
     }
 
@@ -1052,7 +1059,7 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
     });
 
     const updated = await db.execute({
-      sql: `SELECT u.id, u.email, u.first_name, u.last_name, u.organization_name, u.role, u.is_active, u.created_at,
+      sql: `SELECT u.id, u.email, u.first_name, u.last_name, u.organization_name, u.title, u.role, u.is_active, u.created_at,
             uf.facility_id, f.name as facility_name, f.code as facility_code
             FROM users u
             LEFT JOIN user_facilities uf ON u.id = uf.user_id

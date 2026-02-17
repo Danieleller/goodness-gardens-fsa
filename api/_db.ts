@@ -27,6 +27,7 @@ export async function initDb() {
       first_name TEXT NOT NULL,
       last_name TEXT NOT NULL,
       organization_name TEXT DEFAULT '',
+      title TEXT DEFAULT '',
       role TEXT DEFAULT 'farmer',
       created_at TEXT DEFAULT (datetime('now')),
       is_active INTEGER DEFAULT 1
@@ -388,6 +389,13 @@ async function seedDb() {
   // Migrate: add internal_id column if it doesn't exist
   try {
     await db.execute('ALTER TABLE facilities ADD COLUMN internal_id INTEGER');
+  } catch (_e) {
+    // Column already exists, ignore
+  }
+
+  // Migrate: add title column to users if it doesn't exist
+  try {
+    await db.execute("ALTER TABLE users ADD COLUMN title TEXT DEFAULT ''");
   } catch (_e) {
     // Column already exists, ignore
   }

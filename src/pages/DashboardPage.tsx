@@ -63,15 +63,15 @@ function CalendarWidget({ events }: { events: CalendarEvent[] }) {
   return (
     <div className="bg-white rounded-lg shadow-md border border-gray-200">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-green-800 text-white rounded-t-lg">
-        <button onClick={prevMonth} className="p-1 hover:bg-green-700 rounded">
+      <div className="flex items-center justify-between px-4 py-3 text-white rounded-t-lg" style={{ backgroundColor: '#1A3A5C' }}>
+        <button onClick={prevMonth} className="p-1 hover:bg-white/10 rounded">
           <ChevronLeft size={18} />
         </button>
         <div className="flex items-center gap-2">
           <CalendarDays size={16} />
           <span className="font-semibold text-sm">{monthName}</span>
         </div>
-        <button onClick={nextMonth} className="p-1 hover:bg-green-700 rounded">
+        <button onClick={nextMonth} className="p-1 hover:bg-white/10 rounded">
           <ChevronRight size={18} />
         </button>
       </div>
@@ -97,8 +97,9 @@ function CalendarWidget({ events }: { events: CalendarEvent[] }) {
             <div
               key={day}
               className={`relative py-1.5 text-xs rounded-md cursor-default transition ${
-                isToday(day) ? 'bg-green-800 text-white font-bold' : 'text-gray-700 hover:bg-gray-50'
+                isToday(day) ? 'text-white font-bold' : 'text-gray-700 hover:bg-gray-50'
               }`}
+              style={isToday(day) ? { backgroundColor: '#1A3A5C' } : undefined}
               title={dayEvents.map(e => e.label).join('\n')}
             >
               {day}
@@ -162,20 +163,20 @@ function ShortcutGroup({ title, icon: Icon, items }: {
 }) {
   return (
     <div className="bg-white rounded-lg shadow-md border border-gray-200">
-      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border-b rounded-t-lg">
-        <Icon size={16} className="text-green-700" />
-        <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+      <div className="flex items-center gap-2 px-4 py-3 border-b rounded-t-lg" style={{ backgroundColor: '#F0F4F8' }}>
+        <Icon size={16} style={{ color: '#1A3A5C' }} />
+        <h3 className="text-sm font-semibold" style={{ color: '#1A3A5C' }}>{title}</h3>
       </div>
       <div className="divide-y divide-gray-100">
         {items.map(item => (
           <Link
             key={item.to}
             to={item.to}
-            className="flex items-center gap-3 px-4 py-3 hover:bg-green-50 transition group"
+            className="flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition group"
           >
-            <item.icon size={18} className="text-gray-400 group-hover:text-green-700 transition flex-shrink-0" />
+            <item.icon size={18} className="text-gray-400 group-hover:text-blue-700 transition flex-shrink-0" />
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-gray-800 group-hover:text-green-800">{item.label}</div>
+              <div className="text-sm font-medium text-gray-800 group-hover:text-blue-800">{item.label}</div>
               <div className="text-xs text-gray-500">{item.description}</div>
             </div>
             {item.badge !== undefined && (
@@ -259,7 +260,7 @@ export function DashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
@@ -267,20 +268,20 @@ export function DashboardPage() {
   const openIssues = dashboard?.kpis?.openNonconformances || 0;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6" style={{ backgroundColor: '#F5F7FA', minHeight: 'calc(100vh - 56px)' }}>
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Home</h1>
+        <h1 className="text-2xl font-bold" style={{ color: '#1A3A5C' }}>Home</h1>
         <p className="text-sm text-gray-500 mt-1">Welcome back, {user?.first_name} — Goodness Gardens FSQA Portal</p>
       </div>
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-        <KpiCard label="Water Tests" value={dashboard?.kpis?.waterTests || 0} color="bg-green-700" icon={Leaf} />
-        <KpiCard label="Chemical Apps" value={dashboard?.kpis?.chemicalApplications || 0} color="bg-blue-600" icon={FlaskConical} />
-        <KpiCard label="Open Issues" value={openIssues} color={openIssues > 0 ? 'bg-red-600' : 'bg-green-600'} icon={CircleAlert} />
-        <KpiCard label="Closed CAPAs" value={dashboard?.kpis?.closedCapas || 0} color="bg-emerald-600" icon={BadgeCheck} />
-        <KpiCard label="Compliance" value={`${dashboard?.kpis?.chemicalCompliancePercentage || 0}%`} color="bg-green-800" icon={Shield} />
+        <KpiCard label="Water Tests" value={dashboard?.kpis?.waterTests || 0} color="bg-blue-700" icon={Leaf} />
+        <KpiCard label="Chemical Apps" value={dashboard?.kpis?.chemicalApplications || 0} color="bg-sky-600" icon={FlaskConical} />
+        <KpiCard label="Open Issues" value={openIssues} color={openIssues > 0 ? 'bg-red-600' : 'bg-emerald-600'} icon={CircleAlert} />
+        <KpiCard label="Closed CAPAs" value={dashboard?.kpis?.closedCapas || 0} color="bg-teal-600" icon={BadgeCheck} />
+        <KpiCard label="Compliance" value={`${dashboard?.kpis?.chemicalCompliancePercentage || 0}%`} color="bg-indigo-700" icon={Shield} />
       </div>
 
       {/* Main grid: shortcuts left, calendar right */}
