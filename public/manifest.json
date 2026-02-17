@@ -1,6 +1,6 @@
 {
-  "name": "Food Safety Audit Manager",
-  "short_name": "FSA Manager",
+  "name": "FSQA Management Portal",
+  "short_name": "FSQA Portal",
   "description": "Comprehensive food safety audit and compliance tracking application",
   "start_url": "/",
   "display": "standalone",

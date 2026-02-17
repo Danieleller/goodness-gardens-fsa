@@ -38,15 +38,13 @@ export function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-xl p-8">
           <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 bg-green-800 text-white rounded-lg flex items-center justify-center text-2xl font-bold">
-              FSA
-            </div>
+            <img src="/logo.svg" alt="Goodness Gardens" className="w-20 h-20" />
           </div>
 
           <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
             Create Account
           </h1>
-          <p className="text-center text-gray-600 mb-8">Sign up for Food Safety Audit Manager</p>
+          <p className="text-center text-gray-600 mb-8">Sign up for FSQA Management Portal</p>
 
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3">

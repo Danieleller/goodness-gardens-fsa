@@ -19,11 +19,10 @@ export function Header() {
     <header className="bg-green-800 text-white shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <Link to="/dashboard" className="flex items-center gap-2 font-bold text-xl">
-            <div className="w-8 h-8 bg-white text-green-800 rounded-lg flex items-center justify-center font-bold">
-              FSA
-            </div>
-            Food Safety Audit Manager
+          <Link to="/dashboard" className="flex items-center gap-3 font-bold text-xl">
+            <img src="/logo.svg" alt="Goodness Gardens" className="w-9 h-9 rounded-full" />
+            <span className="hidden sm:inline">FSQA Management Portal</span>
+            <span className="sm:hidden">FSQA Portal</span>
           </Link>
 
           <button

@@ -32,13 +32,11 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-xl p-8">
           <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 bg-green-800 text-white rounded-lg flex items-center justify-center text-2xl font-bold">
-              FSA
-            </div>
+            <img src="/logo.svg" alt="Goodness Gardens" className="w-20 h-20" />
           </div>
 
           <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
-            Food Safety Audit Manager
+            FSQA Management Portal
           </h1>
           <p className="text-center text-gray-600 mb-8">Sign in to your account</p>
 
