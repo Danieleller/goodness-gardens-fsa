@@ -92,9 +92,9 @@ export const reportsAPI = {
 
 export const adminAPI = {
   users: {
-    getAll: () => api.get('/admin'),
+    getAll: () => api.get('/admin/list'),
     create: (data: { email: string; first_name: string; last_name: string; organization_name: string; temp_password: string }) =>
-      api.post('/admin', data),
+      api.post('/admin/list', data),
     update: (id: number, data: { role?: string; is_active?: number }) =>
       api.put(`/admin/${id}`, data),
     resetPassword: (id: number, data: { temp_password: string }) =>

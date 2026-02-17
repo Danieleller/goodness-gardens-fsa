@@ -52,7 +52,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // /api/admin/123         -> slug = ['123']     (update / delete)
     // /api/admin/123/reset-password -> slug = ['123', 'reset-password']
 
-    const targetId = slug?.[0] ? Number(slug[0]) : null;
+    // slug[0] can be a numeric ID or 'list' for collection routes
+    const firstSegment = slug?.[0];
+    const isCollection = !firstSegment || firstSegment === 'list' || isNaN(Number(firstSegment));
+    const targetId = !isCollection ? Number(firstSegment) : null;
     const action = slug?.[1]; // 'reset-password'
 
     // POST /api/admin/:id/reset-password
@@ -79,8 +82,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ message: 'Password reset successfully' });
     }
 
-    // Collection routes: /api/admin/users
-    if (!targetId) {
+    // Collection routes: /api/admin/list (GET = list, POST = create)
+    if (isCollection) {
       if (req.method === 'GET') {
         const result = await db.execute({
           sql: 'SELECT id, email, first_name, last_name, organization_name, role, is_active, created_at FROM users ORDER BY created_at DESC',
