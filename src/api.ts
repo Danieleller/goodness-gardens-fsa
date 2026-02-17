@@ -174,3 +174,11 @@ export const netsuiteAPI = {
   supplyMaster: (params?: { limit?: number; offset?: number }) =>
     api.get('/netsuite/supply-master', { params }),
 };
+
+export const certAPI = {
+  list: () => api.get('/netsuite/certifications'),
+  upload: (data: any) => api.post('/netsuite/certifications', data),
+  update: (id: number, data: any) => api.put(`/netsuite/certifications/${id}`, data),
+  delete: (id: number) => api.delete(`/netsuite/certifications/${id}`),
+  download: (id: number) => api.get(`/netsuite/certifications/${id}/download`, { responseType: 'blob' }),
+};

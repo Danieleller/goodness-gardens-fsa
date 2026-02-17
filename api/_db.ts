@@ -363,6 +363,21 @@ export async function initDb() {
       FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
       FOREIGN KEY (facility_id) REFERENCES facilities(id),
       UNIQUE(supplier_id, facility_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS vendor_certifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vendor_id TEXT NOT NULL,
+      vendor_name TEXT NOT NULL,
+      item_type TEXT DEFAULT '',
+      cert_file_name TEXT,
+      cert_file_data TEXT,
+      cert_content_type TEXT,
+      expiration_date TEXT,
+      notification_email TEXT,
+      notification_sent INTEGER DEFAULT 0,
+      uploaded_by TEXT,
+      uploaded_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
     )`
   ];
 

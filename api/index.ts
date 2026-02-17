@@ -1681,6 +1681,164 @@ function generateNetSuiteOAuth(
   return `OAuth realm="${accountId}",oauth_consumer_key="${consumerKey}",oauth_token="${tokenId}",oauth_nonce="${nonce}",oauth_timestamp="${timestamp}",oauth_signature_method="HMAC-SHA256",oauth_version="1.0",oauth_signature="${encodeURIComponent(signature)}"`;
 }
 
+// ============================================================================
+// VENDOR CERTIFICATIONS HANDLERS
+// ============================================================================
+
+async function handleVendorCertifications(
+  req: VercelRequest,
+  res: VercelResponse,
+  db: any,
+  userId: number,
+  certId?: string
+): Promise<VercelResponse | void> {
+  // GET /netsuite/certifications - list all certifications
+  if (req.method === 'GET' && !certId) {
+    try {
+      const result = await db.execute({
+        sql: `SELECT id, vendor_id, vendor_name, item_type, cert_file_name, expiration_date, notification_email, notification_sent, uploaded_by, uploaded_at, updated_at
+              FROM vendor_certifications
+              ORDER BY vendor_name ASC, item_type ASC, expiration_date ASC`,
+      });
+      return res.status(200).json({ certifications: result.rows });
+    } catch (error) {
+      console.error('Failed to fetch certifications:', error);
+      return res.status(500).json({ error: 'Failed to fetch certifications' });
+    }
+  }
+
+  // GET /netsuite/certifications/:id/download - download cert file
+  if (req.method === 'GET' && certId && certId.includes('download')) {
+    const realCertId = certId.split('/')[0];
+    try {
+      const result = await db.execute({
+        sql: `SELECT cert_file_name, cert_file_data, cert_content_type FROM vendor_certifications WHERE id = ?`,
+        args: [Number(realCertId)],
+      });
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Certification not found' });
+      }
+      const cert = result.rows[0] as any;
+      const buffer = Buffer.from(cert.cert_file_data, 'base64');
+      res.setHeader('Content-Type', cert.cert_content_type || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${cert.cert_file_name}"`);
+      return res.status(200).send(buffer);
+    } catch (error) {
+      console.error('Failed to download certification:', error);
+      return res.status(500).json({ error: 'Failed to download certification' });
+    }
+  }
+
+  // POST /netsuite/certifications - upload new certification
+  if (req.method === 'POST' && !certId) {
+    try {
+      const { vendor_id, vendor_name, item_type, cert_file_name, cert_file_data, cert_content_type, expiration_date, notification_email } = req.body;
+
+      if (!vendor_id || !vendor_name || !cert_file_name || !cert_file_data || !cert_content_type) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      // Validate file size (max 5MB base64)
+      if (cert_file_data.length > 6_666_667) { // 5MB in base64
+        return res.status(400).json({ error: 'File too large (max 5MB)' });
+      }
+
+      const user = await db.execute({
+        sql: `SELECT first_name, last_name FROM users WHERE id = ?`,
+        args: [userId],
+      });
+      const uploadedBy = user.rows.length > 0 ? `${(user.rows[0] as any).first_name} ${(user.rows[0] as any).last_name}` : 'Unknown';
+
+      const result = await db.execute({
+        sql: `INSERT INTO vendor_certifications
+              (vendor_id, vendor_name, item_type, cert_file_name, cert_file_data, cert_content_type, expiration_date, notification_email, uploaded_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [vendor_id, vendor_name, item_type || '', cert_file_name, cert_file_data, cert_content_type, expiration_date || null, notification_email || null, uploadedBy],
+      });
+
+      return res.status(201).json({
+        id: result.lastInsertRowid,
+        vendor_id,
+        vendor_name,
+        cert_file_name,
+      });
+    } catch (error) {
+      console.error('Failed to upload certification:', error);
+      return res.status(500).json({ error: 'Failed to upload certification' });
+    }
+  }
+
+  // PUT /netsuite/certifications/:id - update certification
+  if (req.method === 'PUT' && certId) {
+    try {
+      const { expiration_date, notification_email, cert_file_name, cert_file_data, cert_content_type } = req.body;
+
+      const existing = await db.execute({
+        sql: `SELECT * FROM vendor_certifications WHERE id = ?`,
+        args: [Number(certId)],
+      });
+
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: 'Certification not found' });
+      }
+
+      const currentData = existing.rows[0] as any;
+      const updates: string[] = [];
+      const args: any[] = [];
+
+      if (expiration_date !== undefined) {
+        updates.push('expiration_date = ?');
+        args.push(expiration_date);
+      }
+      if (notification_email !== undefined) {
+        updates.push('notification_email = ?');
+        args.push(notification_email);
+      }
+      if (cert_file_name !== undefined && cert_file_data !== undefined && cert_content_type !== undefined) {
+        // Validate file size
+        if (cert_file_data.length > 6_666_667) {
+          return res.status(400).json({ error: 'File too large (max 5MB)' });
+        }
+        updates.push('cert_file_name = ?, cert_file_data = ?, cert_content_type = ?');
+        args.push(cert_file_name, cert_file_data, cert_content_type);
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'No fields to update' });
+      }
+
+      updates.push('updated_at = datetime(\'now\')');
+      args.push(Number(certId));
+
+      await db.execute({
+        sql: `UPDATE vendor_certifications SET ${updates.join(', ')} WHERE id = ?`,
+        args,
+      });
+
+      return res.status(200).json({ id: certId, updated: true });
+    } catch (error) {
+      console.error('Failed to update certification:', error);
+      return res.status(500).json({ error: 'Failed to update certification' });
+    }
+  }
+
+  // DELETE /netsuite/certifications/:id - delete certification
+  if (req.method === 'DELETE' && certId) {
+    try {
+      await db.execute({
+        sql: `DELETE FROM vendor_certifications WHERE id = ?`,
+        args: [Number(certId)],
+      });
+      return res.status(200).json({ deleted: true });
+    } catch (error) {
+      console.error('Failed to delete certification:', error);
+      return res.status(500).json({ error: 'Failed to delete certification' });
+    }
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+
 async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelResponse): Promise<VercelResponse | void> {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -1703,18 +1861,20 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
 
     const query = `
       SELECT
+        COALESCE(Item.custitem_type, Item.class, 'Conventional') AS type,
         BUILTIN.DF(Transaction.entity) AS vendor,
         MAX(Transaction.trandate) AS last_transaction,
         Transaction.entity AS vendor_id
       FROM Transaction
       INNER JOIN TransactionLine ON TransactionLine.transaction = Transaction.id
+      INNER JOIN Item ON TransactionLine.item = Item.id
       WHERE Transaction.type = 'ItemRcpt'
         AND TransactionLine.mainline = 'F'
         AND TransactionLine.taxline = 'F'
         AND TransactionLine.quantity > 0
         AND Transaction.trandate >= ADD_MONTHS(TRUNC(SYSDATE, 'YEAR'), 0)
-      GROUP BY Transaction.entity, BUILTIN.DF(Transaction.entity)
-      ORDER BY BUILTIN.DF(Transaction.entity) ASC
+      GROUP BY COALESCE(Item.custitem_type, Item.class, 'Conventional'), Transaction.entity, BUILTIN.DF(Transaction.entity)
+      ORDER BY type ASC, BUILTIN.DF(Transaction.entity) ASC, MAX(Transaction.trandate) DESC
     `;
 
     const queryParams: Record<string, string> = { limit: '200', offset: '0' };
@@ -1940,6 +2100,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (pathArray[0] === 'netsuite') {
       if (pathArray[1] === 'supply-master' && req.method === 'GET') {
         return await handleNetSuiteSupplyMaster(req, res);
+      }
+      if (pathArray[1] === 'certifications') {
+        return await handleVendorCertifications(req, res, db, userId, pathArray[2]);
       }
       return res.status(404).json({ error: 'NetSuite endpoint not found' });
     }
