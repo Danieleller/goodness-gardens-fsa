@@ -4,6 +4,7 @@ import { facilitiesAPI } from '@/api';
 
 interface Facility {
   id: string;
+  internal_id: number | null;
   code: string;
   name: string;
   location: string;
@@ -75,7 +76,12 @@ function FacilityCard({ facility, onClick }: { facility: Facility; onClick: () =
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
           <h3 className="text-lg font-semibold text-gray-900 mb-1">{facility.name}</h3>
-          <p className="text-sm text-gray-600 font-mono">{facility.code}</p>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600 font-mono">{facility.code}</span>
+            {facility.internal_id && (
+              <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-mono">ID: {facility.internal_id}</span>
+            )}
+          </div>
         </div>
         <Building2 className="w-5 h-5 text-green-600 flex-shrink-0" />
       </div>
@@ -184,6 +190,11 @@ function FacilityDetailView({
                 <span className="text-sm font-mono bg-gray-100 text-gray-700 px-3 py-1 rounded">
                   {facility.code}
                 </span>
+                {facility.internal_id && (
+                  <span className="text-sm font-mono bg-blue-50 text-blue-700 px-3 py-1 rounded">
+                    Internal ID: {facility.internal_id}
+                  </span>
+                )}
               </div>
               <p className="text-gray-600 flex items-center gap-2">
                 <MapPin className="w-4 h-4" />
@@ -198,7 +209,13 @@ function FacilityDetailView({
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Facility Information</h2>
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+            {facility.internal_id && (
+              <div>
+                <p className="text-sm text-gray-600 font-medium mb-1">Internal ID</p>
+                <p className="text-lg font-semibold text-gray-900 font-mono">{facility.internal_id}</p>
+              </div>
+            )}
             <div>
               <p className="text-sm text-gray-600 font-medium mb-1">Facility Type</p>
               <p className="text-lg font-semibold text-gray-900 inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full">

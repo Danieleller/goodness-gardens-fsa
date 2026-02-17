@@ -118,6 +118,7 @@ export async function initDb() {
     // NEW TABLES FOR EXPANSION
     `CREATE TABLE IF NOT EXISTS facilities (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      internal_id INTEGER UNIQUE,
       code TEXT UNIQUE NOT NULL,
       name TEXT NOT NULL,
       location TEXT,
@@ -384,33 +385,73 @@ async function seedDb() {
   if (seedData) return;
   const db = getDb();
 
-  // Check if facilities already exist - if so, skip seeding
+  // Migrate: add internal_id column if it doesn't exist
+  try {
+    await db.execute('ALTER TABLE facilities ADD COLUMN internal_id INTEGER UNIQUE');
+  } catch (_e) {
+    // Column already exists, ignore
+  }
+
+  // Check if facilities already exist - if so, update internal_ids and skip full seeding
   const checkFacilities = await db.execute('SELECT COUNT(*) as count FROM facilities');
   const facilityCount = (checkFacilities.rows[0] as any)?.count || 0;
 
   if (facilityCount > 0) {
+    // Update internal_ids on existing facilities and add any new ones
+    const internalIdMap: { [code: string]: { internal_id: number; name: string; location: string; facility_type: string; organic: string } } = {
+      'NH': { internal_id: 2, name: 'New Hampton', location: 'New Hampton, NY', facility_type: 'Growing + Packing', organic: 'Grower + Handler' },
+      'AL': { internal_id: 41, name: 'Allentown', location: 'Allentown, PA', facility_type: 'Growing + Packing', organic: 'Grower + Handler' },
+      'MI': { internal_id: 17, name: 'Miami', location: 'Miami, FL', facility_type: 'Packing/Handling', organic: 'Handler' },
+      'MG': { internal_id: 36, name: 'McGregors', location: 'McGregors, FL', facility_type: 'Indoor Ag + Packing', organic: 'Grower + Handler' },
+      'SA': { internal_id: 31, name: 'San Antonio', location: 'San Antonio, TX', facility_type: 'Packing/Handling', organic: 'Handler' },
+      'PE': { internal_id: 37, name: 'Pearsall', location: 'Pearsall, TX', facility_type: 'Growing + Indoor Ag', organic: 'Grower' },
+      'IN': { internal_id: 38, name: 'Indiana', location: 'Francesville, IN', facility_type: 'Indoor Ag + Packing', organic: 'Grower + Handler' },
+    };
+    for (const [code, data] of Object.entries(internalIdMap)) {
+      await db.execute({ sql: 'UPDATE facilities SET internal_id = ?, location = ? WHERE code = ? AND (internal_id IS NULL OR internal_id != ?)', args: [data.internal_id, data.location, code, data.internal_id] });
+    }
+    // Add new facilities if they don't exist
+    const newFacilities = [
+      { code: 'CORP', internal_id: 28, name: 'Corporate', location: 'New York, NY', facility_type: 'Corporate Office', m1: 1, m2: 0, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: '' },
+      { code: 'GH', internal_id: 32, name: 'Greenhouse', location: 'New York, NY', facility_type: 'Indoor Ag', m1: 1, m2: 0, m3: 1, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: 'Grower' },
+      { code: 'TV', internal_id: 39, name: 'Taylorville', location: 'Taylorville, IL', facility_type: 'Indoor Ag + Packing', m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
+      { code: 'PU', internal_id: 48, name: 'Puebla', location: 'Puebla, MX', facility_type: 'Growing', m1: 1, m2: 1, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: 'Grower' },
+    ];
+    for (const f of newFacilities) {
+      const exists = await db.execute({ sql: 'SELECT id FROM facilities WHERE code = ?', args: [f.code] });
+      if (exists.rows.length === 0) {
+        await db.execute({
+          sql: `INSERT INTO facilities (internal_id, code, name, location, facility_type, m1_fsms, m2_farm, m3_indoor_ag, m4_harvest, m5_facility, m6_haccp, m7_prev_controls, m8_grains, m9_ipm, organic_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [f.internal_id, f.code, f.name, f.location, f.facility_type, f.m1, f.m2, f.m3, f.m4, f.m5, f.m6, f.m7, f.m8, f.m9, f.organic],
+        });
+      }
+    }
     seedData = true;
     return;
   }
 
-  // SEED FACILITIES
+  // SEED FACILITIES (internal_id from NetSuite Locations601.csv)
   const facilitySeeds = [
-    { code: 'NH', name: 'New Hampton', location: 'New Hampton', facility_type: 'Growing + Packing', m1: 1, m2: 1, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
-    { code: 'AL', name: 'Allentown', location: 'Allentown', facility_type: 'Growing + Packing', m1: 1, m2: 1, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
-    { code: 'MI', name: 'Miami', location: 'Miami', facility_type: 'Packing/Handling', m1: 1, m2: 0, m3: 0, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 0, organic: 'Handler' },
-    { code: 'MG', name: 'McGregors', location: 'McGregors', facility_type: 'Indoor Ag + Packing', m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
-    { code: 'SA', name: 'San Antonio', location: 'San Antonio', facility_type: 'Packing/Handling', m1: 1, m2: 0, m3: 0, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 0, organic: 'Handler' },
-    { code: 'PE', name: 'Pearsall', location: 'Pearsall', facility_type: 'Growing + Indoor Ag', m1: 1, m2: 1, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower' },
-    { code: 'IN', name: 'Indiana', location: 'Indiana', facility_type: 'Indoor Ag + Packing', m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
+    { code: 'NH', name: 'New Hampton', location: 'New Hampton, NY', facility_type: 'Growing + Packing', internal_id: 2, m1: 1, m2: 1, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
+    { code: 'AL', name: 'Allentown', location: 'Allentown, PA', facility_type: 'Growing + Packing', internal_id: 41, m1: 1, m2: 1, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
+    { code: 'MI', name: 'Miami', location: 'Miami, FL', facility_type: 'Packing/Handling', internal_id: 17, m1: 1, m2: 0, m3: 0, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 0, organic: 'Handler' },
+    { code: 'MG', name: 'McGregors', location: 'McGregors, FL', facility_type: 'Indoor Ag + Packing', internal_id: 36, m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
+    { code: 'SA', name: 'San Antonio', location: 'San Antonio, TX', facility_type: 'Packing/Handling', internal_id: 31, m1: 1, m2: 0, m3: 0, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 0, organic: 'Handler' },
+    { code: 'PE', name: 'Pearsall', location: 'Pearsall, TX', facility_type: 'Growing + Indoor Ag', internal_id: 37, m1: 1, m2: 1, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower' },
+    { code: 'IN', name: 'Indiana', location: 'Francesville, IN', facility_type: 'Indoor Ag + Packing', internal_id: 38, m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
+    { code: 'CORP', name: 'Corporate', location: 'New York, NY', facility_type: 'Corporate Office', internal_id: 28, m1: 1, m2: 0, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: '' },
+    { code: 'GH', name: 'Greenhouse', location: 'New York, NY', facility_type: 'Indoor Ag', internal_id: 32, m1: 1, m2: 0, m3: 1, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: 'Grower' },
+    { code: 'TV', name: 'Taylorville', location: 'Taylorville, IL', facility_type: 'Indoor Ag + Packing', internal_id: 39, m1: 1, m2: 0, m3: 1, m4: 0, m5: 1, m6: 1, m7: 1, m8: 0, m9: 1, organic: 'Grower + Handler' },
+    { code: 'PU', name: 'Puebla', location: 'Puebla, MX', facility_type: 'Growing', internal_id: 48, m1: 1, m2: 1, m3: 0, m4: 0, m5: 0, m6: 0, m7: 0, m8: 0, m9: 0, organic: 'Grower' },
   ];
 
   const facilityIds: { [key: string]: number } = {};
 
   for (const facility of facilitySeeds) {
     const result = await db.execute({
-      sql: `INSERT INTO facilities (code, name, location, facility_type, m1_fsms, m2_farm, m3_indoor_ag, m4_harvest, m5_facility, m6_haccp, m7_prev_controls, m8_grains, m9_ipm, organic_scope)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [facility.code, facility.name, facility.location, facility.facility_type, facility.m1, facility.m2, facility.m3, facility.m4, facility.m5, facility.m6, facility.m7, facility.m8, facility.m9, facility.organic],
+      sql: `INSERT INTO facilities (internal_id, code, name, location, facility_type, m1_fsms, m2_farm, m3_indoor_ag, m4_harvest, m5_facility, m6_haccp, m7_prev_controls, m8_grains, m9_ipm, organic_scope)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [facility.internal_id, facility.code, facility.name, facility.location, facility.facility_type, facility.m1, facility.m2, facility.m3, facility.m4, facility.m5, facility.m6, facility.m7, facility.m8, facility.m9, facility.organic],
     });
     const lastId = (result as any).lastInsertRowid;
     facilityIds[facility.code] = lastId;
