@@ -77,7 +77,7 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-14">
           <Link to="/dashboard" className="flex items-center gap-3 font-bold text-xl shrink-0">
-            <img src="/nobackground-Goodness%20Gardens%20(630x630)%20(1).png" alt="Goodness Gardens" className="h-10 w-auto" />
+            <img src="/nobackground-Goodness%20Gardens%20(630x630)%20(1).png" alt="Goodness Gardens" className="h-10 w-auto bg-white rounded-lg p-1" />
             <span className="hidden lg:inline text-base font-semibold">FSQA Portal</span>
           </Link>
 
