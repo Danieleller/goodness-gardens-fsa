@@ -89,3 +89,16 @@ export const reportsAPI = {
   dashboard: () => api.get('/reports/dashboard'),
   export: (type: string) => api.get('/reports/export', { params: { type } }),
 };
+
+export const adminAPI = {
+  users: {
+    getAll: () => api.get('/admin/users'),
+    create: (data: { email: string; first_name: string; last_name: string; organization_name: string; temp_password: string }) =>
+      api.post('/admin/users', data),
+    update: (id: number, data: { role?: string; is_active?: number }) =>
+      api.put(`/admin/users/${id}`, data),
+    resetPassword: (id: number, data: { temp_password: string }) =>
+      api.post(`/admin/users/${id}/reset-password`, data),
+    delete: (id: number) => api.delete(`/admin/users/${id}`),
+  },
+};

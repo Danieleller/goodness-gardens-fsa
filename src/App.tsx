@@ -11,6 +11,8 @@ import { PreHarvestPage } from '@/pages/PreHarvestPage';
 import { ChemicalsPage } from '@/pages/ChemicalsPage';
 import { CorrectiveActionsPage } from '@/pages/CorrectiveActionsPage';
 import { ReportsPage } from '@/pages/ReportsPage';
+import { AdminPage } from '@/pages/AdminPage';
+import { AdminProtectedRoute } from '@/components/AdminProtectedRoute';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
@@ -78,6 +80,14 @@ export default function App() {
             <ProtectedRoute>
               <ReportsPage />
             </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <AdminProtectedRoute>
+              <AdminPage />
+            </AdminProtectedRoute>
           }
         />
         <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />

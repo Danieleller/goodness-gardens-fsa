@@ -41,6 +41,9 @@ export function Header() {
             <Link to="/chemicals" className="hover:text-green-200 transition">Chemicals</Link>
             <Link to="/corrective-actions" className="hover:text-green-200 transition">Corrective Actions</Link>
             <Link to="/reports" className="hover:text-green-200 transition">Reports</Link>
+            {user.role === 'admin' && (
+              <Link to="/admin" className="hover:text-green-200 transition font-semibold">Admin</Link>
+            )}
           </nav>
 
           <div className="hidden md:flex items-center gap-4">

@@ -118,5 +118,12 @@ export async function initDb() {
   for (const sql of tables) {
     await db.execute(sql);
   }
+
+  // Promote user ID 1 (Daniel) to admin if not already
+  await db.execute({
+    sql: "UPDATE users SET role = 'admin' WHERE id = 1 AND role != 'admin'",
+    args: [],
+  });
+
   initialized = true;
 }

@@ -26,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const db = getDb();
 
     const result = await db.execute({
-      sql: 'SELECT id, email, password_hash, first_name, last_name, organization_name, role FROM users WHERE email = ?',
+      sql: 'SELECT id, email, password_hash, first_name, last_name, organization_name, role, is_active FROM users WHERE email = ?',
       args: [email],
     });
 
@@ -39,6 +39,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!passwordMatch) {
       return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (!user.is_active) {
+      return res.status(403).json({ error: 'Your account has been deactivated. Please contact your administrator.' });
     }
 
     const token = signToken(user.id);
