@@ -11,9 +11,58 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { id } = req.query;
-    const storageId = Number(id);
     const db = getDb();
+    const slug = req.query.slug as string[] | undefined;
+    const id = slug?.[0];
+
+    // Collection routes: /api/chemicals/storage
+    if (!id) {
+      if (req.method === 'GET') {
+        const result = await db.execute({
+          sql: 'SELECT * FROM chemical_storage WHERE user_id = ? ORDER BY created_at DESC',
+          args: [userId],
+        });
+        return res.status(200).json(result.rows);
+      }
+
+      if (req.method === 'POST') {
+        const {
+          product_name,
+          storage_location,
+          quantity_stored,
+          quantity_unit,
+          received_date,
+          expiration_date,
+          storage_conditions,
+          safety_equipment_available,
+          last_inventory_date,
+          notes,
+        } = req.body;
+
+        const result = await db.execute({
+          sql: `INSERT INTO chemical_storage (
+            user_id, product_name, storage_location, quantity_stored, quantity_unit,
+            received_date, expiration_date, storage_conditions, safety_equipment_available,
+            last_inventory_date, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            userId, product_name, storage_location, quantity_stored, quantity_unit,
+            received_date, expiration_date, storage_conditions, safety_equipment_available,
+            last_inventory_date, notes,
+          ],
+        });
+
+        return res.status(201).json({
+          id: Number(result.lastInsertRowid),
+          message: 'Chemical storage record created successfully',
+        });
+      }
+
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
+    // Individual resource routes: /api/chemicals/storage/[id]
+    const storageId = Number(id);
 
     if (req.method === 'GET') {
       const result = await db.execute({
@@ -89,7 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
-    console.error('Chemical storage [id] error:', error);
+    console.error('Chemical storage error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
