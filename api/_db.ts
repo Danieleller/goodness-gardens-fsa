@@ -375,9 +375,12 @@ export async function initDb() {
   });
 
   initialized = true;
+
+  // Run seed data after table creation
+  await seedDb();
 }
 
-export async function seedDb() {
+async function seedDb() {
   if (seedData) return;
   const db = getDb();
 
