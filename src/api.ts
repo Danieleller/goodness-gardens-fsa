@@ -102,3 +102,63 @@ export const adminAPI = {
     delete: (id: number) => api.delete(`/admin/${id}`),
   },
 };
+
+// ---- NEW APIs ----
+
+export const facilitiesAPI = {
+  getAll: () => api.get('/facilities'),
+  getById: (id: number) => api.get(`/facilities/${id}`),
+  update: (id: number, data: any) => api.put(`/facilities/${id}`, data),
+};
+
+export const checklistsAPI = {
+  templates: {
+    getAll: (facilityType?: string) => api.get('/checklists/templates', { params: facilityType ? { facility_type: facilityType } : {} }),
+    getById: (id: number) => api.get(`/checklists/templates/${id}`),
+  },
+  submissions: {
+    getAll: (params?: { facility_id?: number; template_id?: number }) => api.get('/checklists/submissions', { params }),
+    getById: (id: number) => api.get(`/checklists/submissions/${id}`),
+    create: (data: any) => api.post('/checklists/submissions', data),
+    signoff: (id: number, data: any) => api.put(`/checklists/submissions/${id}/signoff`, data),
+  },
+};
+
+export const sopsAPI = {
+  getAll: (params?: { category?: string; status?: string; priority?: string }) => api.get('/sops', { params }),
+  getById: (id: number) => api.get(`/sops/${id}`),
+  create: (data: any) => api.post('/sops', data),
+  update: (id: number, data: any) => api.put(`/sops/${id}`, data),
+  updateStatus: (id: number, status: string) => api.put(`/sops/${id}/status`, { status }),
+  getByFacility: (facilityId: number) => api.get(`/sops/facility/${facilityId}`),
+};
+
+export const gapsAPI = {
+  summary: () => api.get('/gaps/summary'),
+  getByFacility: (facilityId: number) => api.get(`/gaps/${facilityId}`),
+  snapshot: (facilityId: number) => api.post(`/gaps/${facilityId}/snapshot`),
+};
+
+export const auditAPI = {
+  modules: (facilityId: number) => api.get(`/audit/modules/${facilityId}`),
+  simulations: {
+    getAll: (facilityId?: number) => api.get('/audit/simulations', { params: facilityId ? { facility_id: facilityId } : {} }),
+    getById: (id: number) => api.get(`/audit/simulations/${id}`),
+    create: (facilityId: number) => api.post('/audit/simulations', { facility_id: facilityId }),
+    saveResponses: (id: number, responses: any[]) => api.post(`/audit/simulations/${id}/responses`, { responses }),
+    getScore: (id: number) => api.get(`/audit/simulations/${id}/score`),
+  },
+};
+
+export const suppliersAPI = {
+  getAll: (params?: { type?: string; status?: string }) => api.get('/suppliers', { params }),
+  getById: (id: number) => api.get(`/suppliers/${id}`),
+  create: (data: any) => api.post('/suppliers', data),
+  update: (id: number, data: any) => api.put(`/suppliers/${id}`, data),
+  delete: (id: number) => api.delete(`/suppliers/${id}`),
+  certifications: {
+    getAll: (supplierId: number) => api.get(`/suppliers/${supplierId}/certifications`),
+    create: (supplierId: number, data: any) => api.post(`/suppliers/${supplierId}/certifications`, data),
+  },
+  expiring: (days?: number) => api.get('/suppliers/expiring', { params: { days: days || 30 } }),
+};

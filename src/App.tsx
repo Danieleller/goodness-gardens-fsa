@@ -13,6 +13,12 @@ import { CorrectiveActionsPage } from '@/pages/CorrectiveActionsPage';
 import { ReportsPage } from '@/pages/ReportsPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { AdminProtectedRoute } from '@/components/AdminProtectedRoute';
+import { FacilitiesPage } from '@/pages/FacilitiesPage';
+import { ChecklistsPage } from '@/pages/ChecklistsPage';
+import { SOPHubPage } from '@/pages/SOPHubPage';
+import { GapAnalysisPage } from '@/pages/GapAnalysisPage';
+import { AuditSimulatorPage } from '@/pages/AuditSimulatorPage';
+import { SupplierPage } from '@/pages/SupplierPage';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
@@ -88,6 +94,54 @@ export default function App() {
             <AdminProtectedRoute>
               <AdminPage />
             </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/facilities"
+          element={
+            <ProtectedRoute>
+              <FacilitiesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/checklists"
+          element={
+            <ProtectedRoute>
+              <ChecklistsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/sops"
+          element={
+            <ProtectedRoute>
+              <SOPHubPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/gap-analysis"
+          element={
+            <ProtectedRoute>
+              <GapAnalysisPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/audit-simulator"
+          element={
+            <ProtectedRoute>
+              <AuditSimulatorPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/suppliers"
+          element={
+            <ProtectedRoute>
+              <SupplierPage />
+            </ProtectedRoute>
           }
         />
         <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
