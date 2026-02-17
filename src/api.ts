@@ -92,13 +92,13 @@ export const reportsAPI = {
 
 export const adminAPI = {
   users: {
-    getAll: () => api.get('/admin/users'),
+    getAll: () => api.get('/admin'),
     create: (data: { email: string; first_name: string; last_name: string; organization_name: string; temp_password: string }) =>
-      api.post('/admin/users', data),
+      api.post('/admin', data),
     update: (id: number, data: { role?: string; is_active?: number }) =>
-      api.put(`/admin/users/${id}`, data),
+      api.put(`/admin/${id}`, data),
     resetPassword: (id: number, data: { temp_password: string }) =>
-      api.post(`/admin/users/${id}/reset-password`, data),
-    delete: (id: number) => api.delete(`/admin/users/${id}`),
+      api.post(`/admin/${id}/reset-password`, data),
+    delete: (id: number) => api.delete(`/admin/${id}`),
   },
 };

@@ -47,20 +47,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const slug = req.query.slug as string[] | undefined;
-    // Expected patterns:
-    // /api/admin/users             -> slug = ['users']
-    // /api/admin/users/123         -> slug = ['users', '123']
-    // /api/admin/users/123/reset-password -> slug = ['users', '123', 'reset-password']
+    // Patterns:
+    // /api/admin             -> slug = undefined  (list / create)
+    // /api/admin/123         -> slug = ['123']     (update / delete)
+    // /api/admin/123/reset-password -> slug = ['123', 'reset-password']
 
-    const resource = slug?.[0]; // 'users'
-    const targetId = slug?.[1] ? Number(slug[1]) : null;
-    const action = slug?.[2]; // 'reset-password'
+    const targetId = slug?.[0] ? Number(slug[0]) : null;
+    const action = slug?.[1]; // 'reset-password'
 
-    if (resource !== 'users') {
-      return res.status(404).json({ error: 'Not found' });
-    }
-
-    // POST /api/admin/users/:id/reset-password
+    // POST /api/admin/:id/reset-password
     if (targetId && action === 'reset-password' && req.method === 'POST') {
       const parsed = resetPasswordSchema.safeParse(req.body);
       if (!parsed.success) {
