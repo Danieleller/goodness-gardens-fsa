@@ -175,6 +175,15 @@ export const netsuiteAPI = {
     api.get('/netsuite/supply-master', { params }),
 };
 
+export const primusChecklistAPI = {
+  getAll: () => api.get('/primus-checklist'),
+  upload: (data: { item_id: number; file_name: string; file_data: string; content_type: string; file_size: number; notes?: string }) =>
+    api.post('/primus-checklist/upload', data),
+  download: (docId: number) => api.get(`/primus-checklist/download/${docId}`),
+  deleteDoc: (docId: number) => api.delete(`/primus-checklist/doc/${docId}`),
+  toggle: (itemId: number) => api.put(`/primus-checklist/toggle/${itemId}`),
+};
+
 export const certAPI = {
   list: () => api.get('/netsuite/certifications'),
   upload: (data: any) => api.post('/netsuite/certifications', data),

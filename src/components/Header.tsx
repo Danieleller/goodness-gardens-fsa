@@ -17,6 +17,7 @@ const navGroups = [
   {
     label: 'Compliance',
     items: [
+      { to: '/audit-checklist', label: 'Audit Checklist' },
       { to: '/sops', label: 'SOP Hub' },
       { to: '/gap-analysis', label: 'Gap Analysis' },
       { to: '/audit-simulator', label: 'Audit Simulator' },

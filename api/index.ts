@@ -1840,6 +1840,129 @@ async function handleVendorCertifications(
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
+// ==================== PRIMUS AUDIT CHECKLIST ====================
+async function handlePrimusChecklist(req: VercelRequest, res: VercelResponse, db: any, userId: number, subPath?: string, subPath2?: string): Promise<VercelResponse | void> {
+  // GET /primus-checklist - get all checklist items grouped by module
+  if (!subPath && req.method === 'GET') {
+    try {
+      const items = await db.execute({ sql: 'SELECT * FROM primus_checklist_items ORDER BY sort_order', args: [] });
+      const docs = await db.execute({ sql: 'SELECT id, item_id, file_name, content_type, file_size, uploaded_by, uploaded_at, notes FROM primus_documents ORDER BY uploaded_at DESC', args: [] });
+
+      // Group items by module
+      const modules: any = {};
+      for (const item of items.rows as any[]) {
+        const key = item.module_number;
+        if (!modules[key]) {
+          modules[key] = {
+            module_number: item.module_number,
+            module_name: item.module_name,
+            module_color: item.module_color,
+            sections: {},
+            total: 0,
+            completed: 0,
+          };
+        }
+        const secKey = item.section_number;
+        if (!modules[key].sections[secKey]) {
+          modules[key].sections[secKey] = {
+            section_number: item.section_number,
+            section_name: item.section_name,
+            items: [],
+          };
+        }
+        // Attach documents to item
+        const itemDocs = (docs.rows as any[]).filter((d: any) => d.item_id === item.id);
+        modules[key].sections[secKey].items.push({ ...item, documents: itemDocs });
+        modules[key].total++;
+        if (item.has_document || itemDocs.length > 0) modules[key].completed++;
+      }
+
+      // Convert to array
+      const result = Object.values(modules).map((m: any) => ({
+        ...m,
+        sections: Object.values(m.sections),
+      }));
+
+      return res.status(200).json({ modules: result, totalItems: items.rows.length });
+    } catch (error) {
+      console.error('Failed to fetch checklist:', error);
+      return res.status(500).json({ error: 'Failed to fetch checklist' });
+    }
+  }
+
+  // POST /primus-checklist/upload - upload document for a checklist item
+  if (subPath === 'upload' && req.method === 'POST') {
+    try {
+      const { item_id, file_name, file_data, content_type, file_size, notes } = req.body;
+      if (!item_id || !file_name || !file_data || !content_type) {
+        return res.status(400).json({ error: 'item_id, file_name, file_data, and content_type are required' });
+      }
+      const result = await db.execute({
+        sql: `INSERT INTO primus_documents (item_id, file_name, file_data, content_type, file_size, uploaded_by, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [item_id, file_name, file_data, content_type, file_size || 0, String(userId), notes || ''],
+      });
+      // Update has_document flag on the checklist item
+      await db.execute({ sql: 'UPDATE primus_checklist_items SET has_document = 1 WHERE id = ?', args: [item_id] });
+      return res.status(201).json({ id: Number((result as any).lastInsertRowid), message: 'Document uploaded' });
+    } catch (error) {
+      console.error('Failed to upload document:', error);
+      return res.status(500).json({ error: 'Failed to upload document' });
+    }
+  }
+
+  // GET /primus-checklist/download/:id - download a document
+  if (subPath === 'download' && subPath2 && req.method === 'GET') {
+    try {
+      const doc = await db.execute({ sql: 'SELECT * FROM primus_documents WHERE id = ?', args: [Number(subPath2)] });
+      if (!doc.rows.length) return res.status(404).json({ error: 'Document not found' });
+      const d = doc.rows[0] as any;
+      return res.status(200).json({ file_name: d.file_name, file_data: d.file_data, content_type: d.content_type });
+    } catch (error) {
+      console.error('Failed to download document:', error);
+      return res.status(500).json({ error: 'Failed to download document' });
+    }
+  }
+
+  // DELETE /primus-checklist/doc/:id - delete a document
+  if (subPath === 'doc' && subPath2 && req.method === 'DELETE') {
+    try {
+      const docId = Number(subPath2);
+      // Get item_id before delete
+      const doc = await db.execute({ sql: 'SELECT item_id FROM primus_documents WHERE id = ?', args: [docId] });
+      await db.execute({ sql: 'DELETE FROM primus_documents WHERE id = ?', args: [docId] });
+      // Check if item still has any documents
+      if (doc.rows.length) {
+        const itemId = (doc.rows[0] as any).item_id;
+        const remaining = await db.execute({ sql: 'SELECT COUNT(*) as count FROM primus_documents WHERE item_id = ?', args: [itemId] });
+        if ((remaining.rows[0] as any).count === 0) {
+          await db.execute({ sql: 'UPDATE primus_checklist_items SET has_document = 0 WHERE id = ?', args: [itemId] });
+        }
+      }
+      return res.status(200).json({ deleted: true });
+    } catch (error) {
+      console.error('Failed to delete document:', error);
+      return res.status(500).json({ error: 'Failed to delete document' });
+    }
+  }
+
+  // PUT /primus-checklist/toggle/:id - toggle has_document flag (for manual check/uncheck)
+  if (subPath === 'toggle' && subPath2 && req.method === 'PUT') {
+    try {
+      const itemId = Number(subPath2);
+      const item = await db.execute({ sql: 'SELECT has_document FROM primus_checklist_items WHERE id = ?', args: [itemId] });
+      if (!item.rows.length) return res.status(404).json({ error: 'Item not found' });
+      const newVal = (item.rows[0] as any).has_document ? 0 : 1;
+      await db.execute({ sql: 'UPDATE primus_checklist_items SET has_document = ? WHERE id = ?', args: [newVal, itemId] });
+      return res.status(200).json({ id: itemId, has_document: newVal });
+    } catch (error) {
+      console.error('Failed to toggle item:', error);
+      return res.status(500).json({ error: 'Failed to toggle item' });
+    }
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+
 async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelResponse): Promise<VercelResponse | void> {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -2093,6 +2216,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         capaDueDates: capas.rows,
         chemicalExpirations: chemicals.rows,
       });
+    }
+
+    // PRIMUS AUDIT CHECKLIST
+    if (pathArray[0] === 'primus-checklist') {
+      return await handlePrimusChecklist(req, res, db, userId, pathArray[1], pathArray[2]);
     }
 
     // NETSUITE INTEGRATION

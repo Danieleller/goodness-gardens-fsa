@@ -20,6 +20,7 @@ import { GapAnalysisPage } from '@/pages/GapAnalysisPage';
 import { AuditSimulatorPage } from '@/pages/AuditSimulatorPage';
 import { SupplierPage } from '@/pages/SupplierPage';
 import { SupplyMasterPage } from '@/pages/SupplyMasterPage';
+import { AuditChecklistPage } from '@/pages/AuditChecklistPage';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
@@ -150,6 +151,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <SupplyMasterPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/audit-checklist"
+          element={
+            <ProtectedRoute>
+              <AuditChecklistPage />
             </ProtectedRoute>
           }
         />
