@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { UserPlus, RotateCcw, UserX, UserCheck, Shield, ShieldOff, AlertCircle, X, Check } from 'lucide-react';
+import { UserPlus, RotateCcw, UserX, UserCheck, Shield, ShieldOff, AlertCircle, X, Check, Mail, Copy, ChevronDown } from 'lucide-react';
 import { adminAPI } from '@/api';
 
 interface ManagedUser {
@@ -13,6 +13,14 @@ interface ManagedUser {
   created_at: string;
 }
 
+const ROLES = [
+  { value: 'farmer', label: 'Worker', color: 'bg-blue-100 text-blue-800' },
+  { value: 'supervisor', label: 'Supervisor', color: 'bg-yellow-100 text-yellow-800' },
+  { value: 'admin', label: 'Admin', color: 'bg-purple-100 text-purple-800' },
+];
+
+const APP_URL = 'https://goodness-gardens-fsa.vercel.app';
+
 export function AdminPage() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,14 +30,20 @@ export function AdminPage() {
   // Invite form
   const [showInvite, setShowInvite] = useState(false);
   const [inviteData, setInviteData] = useState({
-    first_name: '', last_name: '', email: '', temp_password: '', organization_name: '',
+    first_name: '', last_name: '', email: '', temp_password: '', organization_name: '', role: 'farmer',
   });
   const [inviteLoading, setInviteLoading] = useState(false);
+
+  // After invite — show credentials card
+  const [inviteResult, setInviteResult] = useState<{ email: string; password: string; name: string } | null>(null);
 
   // Reset password
   const [resetUserId, setResetUserId] = useState<number | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
+
+  // Role dropdown
+  const [roleDropdownId, setRoleDropdownId] = useState<number | null>(null);
 
   const fetchUsers = async () => {
     try {
@@ -48,7 +62,7 @@ export function AdminPage() {
   const showMessage = (msg: string, isError = false) => {
     if (isError) { setError(msg); setSuccess(''); }
     else { setSuccess(msg); setError(''); }
-    setTimeout(() => { setError(''); setSuccess(''); }, 4000);
+    setTimeout(() => { setError(''); setSuccess(''); }, 5000);
   };
 
   const handleInvite = async (e: React.FormEvent) => {
@@ -56,9 +70,21 @@ export function AdminPage() {
     setInviteLoading(true);
     try {
       await adminAPI.users.create(inviteData);
-      showMessage(`User ${inviteData.email} invited successfully!`);
+      // If a role other than farmer was selected, update it
+      if (inviteData.role !== 'farmer') {
+        const refreshed = await adminAPI.users.getAll();
+        const newUser = (refreshed.data as ManagedUser[]).find((u: ManagedUser) => u.email === inviteData.email);
+        if (newUser) {
+          await adminAPI.users.update(newUser.id, { role: inviteData.role });
+        }
+      }
+      setInviteResult({
+        email: inviteData.email,
+        password: inviteData.temp_password,
+        name: `${inviteData.first_name} ${inviteData.last_name}`,
+      });
       setShowInvite(false);
-      setInviteData({ first_name: '', last_name: '', email: '', temp_password: '', organization_name: '' });
+      setInviteData({ first_name: '', last_name: '', email: '', temp_password: '', organization_name: '', role: 'farmer' });
       fetchUsers();
     } catch (err: any) {
       showMessage(err.response?.data?.error || 'Failed to invite user', true);
@@ -78,11 +104,11 @@ export function AdminPage() {
     }
   };
 
-  const handleToggleRole = async (user: ManagedUser) => {
+  const handleChangeRole = async (user: ManagedUser, newRole: string) => {
     try {
-      const newRole = user.role === 'admin' ? 'farmer' : 'admin';
       await adminAPI.users.update(user.id, { role: newRole });
-      showMessage(`${user.first_name} is now ${newRole}`);
+      showMessage(`${user.first_name} is now ${ROLES.find(r => r.value === newRole)?.label || newRole}`);
+      setRoleDropdownId(null);
       fetchUsers();
     } catch (err: any) {
       showMessage(err.response?.data?.error || 'Failed to update role', true);
@@ -115,6 +141,35 @@ export function AdminPage() {
     }
   };
 
+  const buildMailtoLink = (email: string, password: string, name: string) => {
+    const subject = encodeURIComponent('Your Goodness Gardens FSQA Portal Account');
+    const body = encodeURIComponent(
+      `Hi ${name},\n\n` +
+      `You've been invited to the Goodness Gardens FSQA Management Portal.\n\n` +
+      `Here are your login credentials:\n\n` +
+      `Login URL: ${APP_URL}/login\n` +
+      `Email: ${email}\n` +
+      `Temporary Password: ${password}\n\n` +
+      `Please log in and change your password at your earliest convenience.\n\n` +
+      `— Goodness Gardens Food Safety Team`
+    );
+    return `mailto:${email}?subject=${subject}&body=${body}`;
+  };
+
+  const copyCredentials = (email: string, password: string, name: string) => {
+    const text =
+      `Hi ${name},\n\n` +
+      `You've been invited to the Goodness Gardens FSQA Management Portal.\n\n` +
+      `Login URL: ${APP_URL}/login\n` +
+      `Email: ${email}\n` +
+      `Temporary Password: ${password}\n\n` +
+      `Please log in and change your password at your earliest convenience.`;
+    navigator.clipboard.writeText(text);
+    showMessage('Credentials copied to clipboard!');
+  };
+
+  const getRoleInfo = (role: string) => ROLES.find(r => r.value === role) || ROLES[0];
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex justify-between items-center mb-6">
@@ -123,7 +178,7 @@ export function AdminPage() {
           <p className="text-gray-600 mt-1">Invite, manage, and control access for your team</p>
         </div>
         <button
-          onClick={() => setShowInvite(!showInvite)}
+          onClick={() => { setShowInvite(!showInvite); setInviteResult(null); }}
           className="flex items-center gap-2 bg-green-800 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
         >
           <UserPlus size={18} />
@@ -144,6 +199,53 @@ export function AdminPage() {
           <Check className="text-green-600 flex-shrink-0" size={20} />
           <p className="text-green-800 text-sm flex-1">{success}</p>
           <button onClick={() => setSuccess('')}><X size={16} className="text-green-400" /></button>
+        </div>
+      )}
+
+      {/* Invite Result — credentials card */}
+      {inviteResult && (
+        <div className="mb-6 bg-green-50 border-2 border-green-300 rounded-lg p-6">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-green-900">User Created Successfully!</h2>
+              <p className="text-green-700 text-sm mt-1">Send these credentials to {inviteResult.name} so they can log in.</p>
+            </div>
+            <button onClick={() => setInviteResult(null)} className="text-green-500 hover:text-green-700">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="bg-white rounded-lg p-4 mb-4 border border-green-200">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+              <div>
+                <span className="text-gray-500 block">Login URL</span>
+                <span className="font-mono text-gray-900">{APP_URL}/login</span>
+              </div>
+              <div>
+                <span className="text-gray-500 block">Email</span>
+                <span className="font-mono text-gray-900">{inviteResult.email}</span>
+              </div>
+              <div>
+                <span className="text-gray-500 block">Password</span>
+                <span className="font-mono text-gray-900">{inviteResult.password}</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <a
+              href={buildMailtoLink(inviteResult.email, inviteResult.password, inviteResult.name)}
+              className="flex items-center gap-2 bg-green-800 text-white px-5 py-2.5 rounded-lg hover:bg-green-700 transition font-medium"
+            >
+              <Mail size={18} />
+              Send Email Invite
+            </a>
+            <button
+              onClick={() => copyCredentials(inviteResult.email, inviteResult.password, inviteResult.name)}
+              className="flex items-center gap-2 bg-white text-green-800 border-2 border-green-800 px-5 py-2.5 rounded-lg hover:bg-green-50 transition font-medium"
+            >
+              <Copy size={18} />
+              Copy Credentials
+            </button>
+          </div>
         </div>
       )}
 
@@ -189,7 +291,19 @@ export function AdminPage() {
                 placeholder="Min 6 characters"
               />
             </div>
-            <div className="md:col-span-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+              <select
+                value={inviteData.role}
+                onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+              >
+                <option value="farmer">Worker (field worker, basic access)</option>
+                <option value="supervisor">Supervisor (can sign off checklists)</option>
+                <option value="admin">Admin (full access, manage users)</option>
+              </select>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Organization (Optional)</label>
               <input
                 type="text"
@@ -204,7 +318,7 @@ export function AdminPage() {
                 disabled={inviteLoading}
                 className="bg-green-800 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
               >
-                {inviteLoading ? 'Inviting...' : 'Send Invite'}
+                {inviteLoading ? 'Creating Account...' : 'Create & Invite'}
               </button>
               <button
                 type="button"
@@ -272,72 +386,91 @@ export function AdminPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {users.map((u) => (
-                  <tr key={u.id} className={!u.is_active ? 'bg-gray-50 opacity-60' : ''}>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{u.first_name} {u.last_name}</div>
-                      <div className="text-xs text-gray-500 md:hidden">{u.organization_name}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{u.email}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">{u.organization_name || '—'}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleToggleRole(u)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                          u.role === 'admin'
-                            ? 'bg-purple-100 text-purple-800 hover:bg-purple-200'
-                            : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
-                        } transition`}
-                        title={`Click to ${u.role === 'admin' ? 'demote to farmer' : 'promote to admin'}`}
-                      >
-                        {u.role === 'admin' ? <Shield size={12} /> : <ShieldOff size={12} />}
-                        {u.role}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleToggleActive(u)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                          u.is_active
-                            ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                            : 'bg-red-100 text-red-800 hover:bg-red-200'
-                        } transition`}
-                        title={`Click to ${u.is_active ? 'deactivate' : 'activate'}`}
-                      >
-                        {u.is_active ? <UserCheck size={12} /> : <UserX size={12} />}
-                        {u.is_active ? 'Active' : 'Inactive'}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-2">
+                {users.map((u) => {
+                  const roleInfo = getRoleInfo(u.role);
+                  return (
+                    <tr key={u.id} className={!u.is_active ? 'bg-gray-50 opacity-60' : ''}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900">{u.first_name} {u.last_name}</div>
+                        <div className="text-xs text-gray-500 md:hidden">{u.organization_name}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{u.email}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">{u.organization_name || '—'}</td>
+                      <td className="px-4 py-3">
+                        <div className="relative">
+                          <button
+                            onClick={() => setRoleDropdownId(roleDropdownId === u.id ? null : u.id)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${roleInfo.color} hover:opacity-80 transition`}
+                            title="Click to change role"
+                          >
+                            {u.role === 'admin' ? <Shield size={12} /> : <ShieldOff size={12} />}
+                            {roleInfo.label}
+                            <ChevronDown size={10} />
+                          </button>
+                          {roleDropdownId === u.id && (
+                            <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[160px]">
+                              {ROLES.map((r) => (
+                                <button
+                                  key={r.value}
+                                  onClick={() => handleChangeRole(u, r.value)}
+                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${
+                                    u.role === r.value ? 'font-semibold bg-gray-50' : ''
+                                  }`}
+                                >
+                                  <span className={`w-2 h-2 rounded-full ${r.value === 'admin' ? 'bg-purple-500' : r.value === 'supervisor' ? 'bg-yellow-500' : 'bg-blue-500'}`} />
+                                  {r.label}
+                                  {u.role === r.value && <Check size={14} className="ml-auto text-green-600" />}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
                         <button
-                          onClick={() => setResetUserId(u.id)}
-                          className="text-gray-500 hover:text-green-700 transition p-1"
-                          title="Reset password"
+                          onClick={() => handleToggleActive(u)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                            u.is_active
+                              ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                              : 'bg-red-100 text-red-800 hover:bg-red-200'
+                          } transition`}
+                          title={`Click to ${u.is_active ? 'deactivate' : 'activate'}`}
                         >
-                          <RotateCcw size={16} />
+                          {u.is_active ? <UserCheck size={12} /> : <UserX size={12} />}
+                          {u.is_active ? 'Active' : 'Inactive'}
                         </button>
-                        {u.is_active ? (
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
                           <button
-                            onClick={() => handleDelete(u)}
-                            className="text-gray-500 hover:text-red-600 transition p-1"
-                            title="Deactivate user"
+                            onClick={() => setResetUserId(u.id)}
+                            className="text-gray-500 hover:text-green-700 transition p-1"
+                            title="Reset password"
                           >
-                            <UserX size={16} />
+                            <RotateCcw size={16} />
                           </button>
-                        ) : (
-                          <button
-                            onClick={() => handleToggleActive(u)}
-                            className="text-gray-500 hover:text-green-600 transition p-1"
-                            title="Reactivate user"
-                          >
-                            <UserCheck size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {u.is_active ? (
+                            <button
+                              onClick={() => handleDelete(u)}
+                              className="text-gray-500 hover:text-red-600 transition p-1"
+                              title="Deactivate user"
+                            >
+                              <UserX size={16} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleToggleActive(u)}
+                              className="text-gray-500 hover:text-green-600 transition p-1"
+                              title="Reactivate user"
+                            >
+                              <UserCheck size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

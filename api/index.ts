@@ -30,7 +30,7 @@ const inviteSchema = z.object({
 });
 
 const adminUpdateSchema = z.object({
-  role: z.enum(['farmer', 'admin']).optional(),
+  role: z.enum(['farmer', 'supervisor', 'admin']).optional(),
   is_active: z.number().min(0).max(1).optional(),
 });
 
