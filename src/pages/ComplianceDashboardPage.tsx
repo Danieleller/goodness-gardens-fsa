@@ -223,7 +223,7 @@ export function ComplianceDashboardPage() {
                   onChange={(e) => setSelectedFacilityId(e.target.value)}
                   className="appearance-none w-full px-3 py-2 pr-10 text-sm sm:px-4 sm:text-base bg-white border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 cursor-pointer"
                 >
-                  <option value="">Select a facility</option>
+                  <option value="">Select a location</option>
                   {facilities.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.name}
@@ -254,7 +254,7 @@ export function ComplianceDashboardPage() {
 
         {!loading && !selectedFacilityId && (
           <div className="text-center py-16">
-            <p className="text-gray-600 text-lg">Select a facility to view compliance scores</p>
+            <p className="text-gray-600 text-lg">Select a location to view compliance scores</p>
           </div>
         )}
 

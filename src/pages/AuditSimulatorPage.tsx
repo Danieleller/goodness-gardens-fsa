@@ -363,7 +363,7 @@ export function AuditSimulatorPage() {
                     onChange={(e) => setSelectedFacility(e.target.value)}
                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-green-500 transition-colors"
                   >
-                    <option value="">Choose a facility...</option>
+                    <option value="">Choose a location...</option>
                     {facilities.map((facility) => (
                       <option key={facility.id} value={facility.id}>
                         {facility.name} ({facility.code})

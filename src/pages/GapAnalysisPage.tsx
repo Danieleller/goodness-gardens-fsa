@@ -197,7 +197,7 @@ function SummaryView({
   if (error) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-800">
-        <p className="font-semibold">Error loading facilities</p>
+        <p className="font-semibold">Error loading locations</p>
         <p className="text-sm mt-1">{error}</p>
       </div>
     );
@@ -206,7 +206,7 @@ function SummaryView({
   if (facilities.length === 0) {
     return (
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
-        <p className="text-gray-600">No facilities found.</p>
+        <p className="text-gray-600">No locations found.</p>
       </div>
     );
   }
@@ -578,7 +578,7 @@ export function GapAnalysisPage() {
       setFacilities(data.data.facilities);
       setView('summary');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load facilities');
+      setError(err instanceof Error ? err.message : 'Failed to load locations');
     } finally {
       setLoading(false);
     }
@@ -593,7 +593,7 @@ export function GapAnalysisPage() {
       setFacilityDetail(data.data);
       setView('detail');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load facility details');
+      setError(err instanceof Error ? err.message : 'Failed to load location details');
       setLoading(false);
     } finally {
       setLoading(false);

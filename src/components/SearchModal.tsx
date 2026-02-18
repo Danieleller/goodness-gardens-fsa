@@ -14,21 +14,21 @@ const typeIcons: Record<string, React.ReactNode> = {
 
 const typeLabels: Record<string, string> = {
   supplier: 'Suppliers',
-  facility: 'Facilities',
+  facility: 'Locations',
   sop: 'Documents',
   checklist: 'Checklists',
   capa: 'CAPA',
   audit: 'Audits',
 };
 
-const filterChips = ['All', 'Suppliers', 'Documents', 'Checklists', 'CAPA', 'Audits', 'Facilities'];
+const filterChips = ['All', 'Suppliers', 'Documents', 'Checklists', 'CAPA', 'Audits', 'Locations'];
 const filterMap: Record<string, string> = {
   Suppliers: 'supplier',
   Documents: 'sop',
   Checklists: 'checklist',
   CAPA: 'capa',
   Audits: 'audit',
-  Facilities: 'facility',
+  Locations: 'facility',
 };
 
 interface SearchModalProps {

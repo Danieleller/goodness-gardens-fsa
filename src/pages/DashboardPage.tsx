@@ -345,7 +345,7 @@ export function DashboardPage() {
               { to: '/pre-harvest', label: 'Pre-Harvest Logs', description: 'Water tests, soil amendments, hygiene', icon: Leaf },
               { to: '/chemicals', label: 'Chemical Tracking', description: 'Applications, storage, MRL compliance', icon: FlaskConical },
               { to: '/checklists', label: 'Digital Checklists', description: 'Daily inspections & sign-offs', icon: ClipboardCheck },
-              { to: '/facilities', label: 'Facilities', description: '7 locations across your network', icon: Building2 },
+              { to: '/facilities', label: 'Locations', description: '7 locations across your network', icon: Building2 },
             ], enabledModules).length > 0 && (
             <ShortcutGroup
               title="Operations"
@@ -354,13 +354,13 @@ export function DashboardPage() {
                 { to: '/pre-harvest', label: 'Pre-Harvest Logs', description: 'Water tests, soil amendments, hygiene', icon: Leaf },
                 { to: '/chemicals', label: 'Chemical Tracking', description: 'Applications, storage, MRL compliance', icon: FlaskConical },
                 { to: '/checklists', label: 'Digital Checklists', description: 'Daily inspections & sign-offs', icon: ClipboardCheck },
-                { to: '/facilities', label: 'Facilities', description: '7 locations across your network', icon: Building2 },
+                { to: '/facilities', label: 'Locations', description: '7 locations across your network', icon: Building2 },
               ], enabledModules)}
             />
           )}
           {filterItemsByModules([
               { to: '/sops', label: 'SOP Document Hub', description: '43 SOPs with version control', icon: FileText },
-              { to: '/gap-analysis', label: 'Gap Analysis', description: 'Per-facility readiness tracker', icon: BarChart3 },
+              { to: '/gap-analysis', label: 'Gap Analysis', description: 'Per-location readiness tracker', icon: BarChart3 },
               { to: '/audit-simulator', label: 'Audit Simulator', description: 'PrimusGFS v4.0 self-scoring', icon: Shield },
             ], enabledModules).length > 0 && (
             <ShortcutGroup
@@ -368,7 +368,7 @@ export function DashboardPage() {
               icon={Shield}
               items={filterItemsByModules([
                 { to: '/sops', label: 'SOP Document Hub', description: '43 SOPs with version control', icon: FileText },
-                { to: '/gap-analysis', label: 'Gap Analysis', description: 'Per-facility readiness tracker', icon: BarChart3 },
+                { to: '/gap-analysis', label: 'Gap Analysis', description: 'Per-location readiness tracker', icon: BarChart3 },
                 { to: '/audit-simulator', label: 'Audit Simulator', description: 'PrimusGFS v4.0 self-scoring', icon: Shield },
               ], enabledModules)}
             />
@@ -392,8 +392,8 @@ export function DashboardPage() {
             title="Administration"
             icon={Users}
             items={[
-              { to: '/admin', label: 'User Management', description: 'Invite, roles & facility access', icon: Users },
-              { to: '/facilities', label: 'Facility Setup', description: 'Modules & organic scope', icon: Building2 },
+              { to: '/admin', label: 'User Management', description: 'Invite, roles & location access', icon: Users },
+              { to: '/facilities', label: 'Location Setup', description: 'Modules & organic scope', icon: Building2 },
             ]}
           />
         </div>

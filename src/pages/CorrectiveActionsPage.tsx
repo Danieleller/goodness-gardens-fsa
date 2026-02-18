@@ -173,7 +173,7 @@ export function CorrectiveActionsPage() {
             onChange={(e) => setFacilityFilter(e.target.value)}
             className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
           >
-            <option value="">All Facilities</option>
+            <option value="">All Locations</option>
             {facilities.map(f => (
               <option key={f.id} value={String(f.id)}>{f.name}</option>
             ))}

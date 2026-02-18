@@ -15,7 +15,7 @@ const searchTypeIcons: Record<string, React.ReactNode> = {
   audit: <Shield size={14} className="text-red-500" />,
 };
 const searchTypeLabels: Record<string, string> = {
-  user: 'Employees', supplier: 'Suppliers', facility: 'Facilities', sop: 'Documents',
+  user: 'Employees', supplier: 'Suppliers', facility: 'Locations', sop: 'Documents',
   checklist: 'Checklists', capa: 'CAPA', audit: 'Audits',
 };
 
@@ -59,7 +59,7 @@ const allNavGroups: NavGroup[] = [
     items: [
       { to: '/corrective-actions', label: 'Corrective Actions', moduleKey: 'corrective_actions' },
       { to: '/suppliers', label: 'Suppliers', moduleKey: 'suppliers' },
-      { to: '/facilities', label: 'Facilities', moduleKey: 'facilities' },
+      { to: '/facilities', label: 'Locations', moduleKey: 'facilities' },
       { to: '/reports', label: 'Reports', moduleKey: 'reports' },
       { to: '/training', label: 'Training', moduleKey: 'training' },
     ],
@@ -103,7 +103,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/compliance-reporting': 'Compliance Reporting',
   '/corrective-actions': 'Corrective Actions',
   '/suppliers': 'Suppliers',
-  '/facilities': 'Facilities',
+  '/facilities': 'Locations',
   '/reports': 'Reports',
   '/training': 'Training',
   '/admin': 'User Management',

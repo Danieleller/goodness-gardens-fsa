@@ -26,7 +26,7 @@ const actionColors: Record<string, string> = {
 
 const entityLabels: Record<string, string> = {
   user: 'User',
-  facility: 'Facility',
+  facility: 'Location',
   supplier: 'Supplier',
   sop: 'SOP Document',
   checklist: 'Checklist',

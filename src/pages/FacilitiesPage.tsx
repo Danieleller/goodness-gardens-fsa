@@ -49,7 +49,7 @@ function LoadingSpinner() {
     <div className="flex items-center justify-center min-h-screen bg-gray-50">
       <div className="flex flex-col items-center gap-4">
         <div className="w-12 h-12 border-4 border-green-200 border-t-green-600 rounded-full animate-spin"></div>
-        <p className="text-gray-600 font-medium">Loading facilities...</p>
+        <p className="text-gray-600 font-medium">Loading locations...</p>
       </div>
     </div>
   );
@@ -180,7 +180,7 @@ function FacilityDetailView({
             className="inline-flex items-center gap-2 text-green-600 hover:text-green-700 font-medium mb-4 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to Facilities
+            Back to Locations
           </button>
 
           <div className="flex items-start justify-between">
@@ -208,7 +208,7 @@ function FacilityDetailView({
 
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Facility Information</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Location Information</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
             {facility.internal_id && (
               <div>
@@ -217,7 +217,7 @@ function FacilityDetailView({
               </div>
             )}
             <div>
-              <p className="text-sm text-gray-600 font-medium mb-1">Facility Type</p>
+              <p className="text-sm text-gray-600 font-medium mb-1">Location Type</p>
               <p className="text-lg font-semibold text-gray-900 inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full">
                 {facility.facility_type}
               </p>
@@ -274,7 +274,7 @@ export function FacilitiesPage() {
         setError(null);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : 'Failed to load facilities'
+          err instanceof Error ? err.message : 'Failed to load locations'
         );
       } finally {
         setLoading(false);
@@ -292,7 +292,7 @@ export function FacilitiesPage() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="bg-white rounded-lg shadow-md p-8 max-w-md">
-          <p className="text-red-600 font-semibold mb-2">Error Loading Facilities</p>
+          <p className="text-red-600 font-semibold mb-2">Error Loading Locations</p>
           <p className="text-gray-600">{error}</p>
         </div>
       </div>
@@ -316,7 +316,7 @@ export function FacilitiesPage() {
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="flex items-center gap-3 mb-2">
             <Building2 className="w-8 h-8 text-green-600" />
-            <h1 className="text-3xl font-bold text-gray-900">Facilities</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Locations</h1>
           </div>
           <p className="text-gray-600">
             Manage {facilities.length} locations across your food safety network
@@ -328,7 +328,7 @@ export function FacilitiesPage() {
         {facilities.length === 0 ? (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">
             <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-600 font-medium">No facilities found</p>
+            <p className="text-gray-600 font-medium">No locations found</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

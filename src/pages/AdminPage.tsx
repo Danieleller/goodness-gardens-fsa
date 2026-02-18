@@ -211,13 +211,13 @@ export function AdminPage() {
     try {
       await adminAPI.users.update(user.id, { facility_id: newFacilityId });
       const facilityLabel = newFacilityId
-        ? facilities.find(f => f.id === newFacilityId)?.name || 'facility'
-        : 'Organization (All Facilities)';
+        ? facilities.find(f => f.id === newFacilityId)?.name || 'location'
+        : 'Organization (All Locations)';
       showMessage(`${user.first_name} assigned to ${facilityLabel}`);
       setFacilityDropdownId(null);
       fetchUsers();
     } catch (err: any) {
-      showMessage(err.response?.data?.error || 'Failed to update facility', true);
+      showMessage(err.response?.data?.error || 'Failed to update location', true);
     }
   };
 
@@ -571,19 +571,19 @@ export function AdminPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Facility Assignment</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Location Assignment</label>
               <select
                 value={inviteData.facility_id}
                 onChange={(e) => setInviteData({ ...inviteData, facility_id: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               >
-                <option value="">Organization (All Facilities)</option>
+                <option value="">Organization (All Locations)</option>
                 {facilities.map((f) => (
                   <option key={f.id} value={f.id}>{f.name} — {f.facility_type}</option>
                 ))}
               </select>
               <p className="text-xs text-gray-500 mt-1">
-                "Organization" gives access to all facilities (for directors). A specific facility limits their view.
+                "Organization" gives access to all locations (for directors). A specific location limits their view.
               </p>
             </div>
             <div>
@@ -670,7 +670,7 @@ export function AdminPage() {
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Name</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600 hidden lg:table-cell">Title</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Email</th>
-                  <th className="text-left px-4 py-3 text-sm font-medium text-gray-600 hidden md:table-cell">Facility</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-gray-600 hidden md:table-cell">Location</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Role</th>
                   <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Status</th>
                   <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">Actions</th>
@@ -715,7 +715,7 @@ export function AdminPage() {
                                 ? 'bg-emerald-100 text-emerald-800'
                                 : 'bg-gray-100 text-gray-800'
                             }`}
-                            title="Click to change facility"
+                            title="Click to change location"
                           >
                             {facilityInfo.isOrg ? <Building2 size={12} /> : <MapPin size={12} />}
                             {facilityInfo.isOrg ? 'Organization' : facilityInfo.label}
@@ -731,7 +731,7 @@ export function AdminPage() {
                               >
                                 <Building2 size={14} className="text-emerald-600" />
                                 <div>
-                                  <div>Organization (All Facilities)</div>
+                                  <div>Organization (All Locations)</div>
                                   <div className="text-xs text-gray-400">Full access — directors</div>
                                 </div>
                                 {!u.facility_id && <Check size={14} className="ml-auto text-green-600" />}

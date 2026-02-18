@@ -175,7 +175,7 @@ export function ComplianceReportingPage() {
     try {
       const res = await reportingAPI.getPdfData(parseInt(selectedFacilityId));
       const data = res.data;
-      const facilityName = facilities.find(f => String(f.id) === selectedFacilityId)?.name || 'Facility';
+      const facilityName = facilities.find(f => String(f.id) === selectedFacilityId)?.name || 'Location';
       const dateStr = new Date().toISOString().split('T')[0];
 
       if (format === 'json') {
