@@ -851,6 +851,8 @@ async function seedDb() {
     }
     // Still run Phase 1 seeds on existing installations
     await seedPhase1(db);
+    // Run Phase 3 seeds (M2-M9 questions, FSMS standards, requirements, evidence links)
+    await seedPhase3(db);
     seedData = true;
     return;
   }
