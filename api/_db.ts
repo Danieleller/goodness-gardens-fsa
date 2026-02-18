@@ -738,6 +738,79 @@ export async function initDb() {
     await db.execute(sql);
   }
 
+  // ── Performance indexes ──────────────────────────────────────────
+  const indexes = [
+    // users
+    'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)',
+    'CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active)',
+    'CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)',
+    // pre_harvest_logs
+    'CREATE INDEX IF NOT EXISTS idx_phl_user ON pre_harvest_logs(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_phl_type ON pre_harvest_logs(log_type)',
+    'CREATE INDEX IF NOT EXISTS idx_phl_created ON pre_harvest_logs(created_at)',
+    // chemical_applications
+    'CREATE INDEX IF NOT EXISTS idx_chem_app_user ON chemical_applications(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_chem_app_date ON chemical_applications(application_date)',
+    // chemical_storage
+    'CREATE INDEX IF NOT EXISTS idx_chem_stor_user ON chemical_storage(user_id)',
+    // nonconformances
+    'CREATE INDEX IF NOT EXISTS idx_nc_user ON nonconformances(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_nc_severity ON nonconformances(severity)',
+    // corrective_actions
+    'CREATE INDEX IF NOT EXISTS idx_ca_user ON corrective_actions(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ca_nc ON corrective_actions(nonconformance_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ca_status ON corrective_actions(status)',
+    // audit_checklists
+    'CREATE INDEX IF NOT EXISTS idx_ac_user ON audit_checklists(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ac_date ON audit_checklists(audit_date)',
+    // facilities
+    'CREATE INDEX IF NOT EXISTS idx_fac_active ON facilities(is_active)',
+    // user_facilities
+    'CREATE INDEX IF NOT EXISTS idx_uf_user ON user_facilities(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_uf_fac ON user_facilities(facility_id)',
+    // checklist_submissions
+    'CREATE INDEX IF NOT EXISTS idx_cs_fac ON checklist_submissions(facility_id)',
+    'CREATE INDEX IF NOT EXISTS idx_cs_template ON checklist_submissions(template_id)',
+    'CREATE INDEX IF NOT EXISTS idx_cs_submitted ON checklist_submissions(submitted_by)',
+    // sop_documents
+    'CREATE INDEX IF NOT EXISTS idx_sop_status ON sop_documents(status)',
+    'CREATE INDEX IF NOT EXISTS idx_sop_category ON sop_documents(category)',
+    'CREATE INDEX IF NOT EXISTS idx_sop_created ON sop_documents(created_at)',
+    // suppliers
+    'CREATE INDEX IF NOT EXISTS idx_sup_status ON suppliers(approval_status)',
+    'CREATE INDEX IF NOT EXISTS idx_sup_active ON suppliers(is_active)',
+    // search_index
+    'CREATE INDEX IF NOT EXISTS idx_search_type ON search_index(entity_type)',
+    'CREATE INDEX IF NOT EXISTS idx_search_text ON search_index(search_text)',
+    // system_audit_log
+    'CREATE INDEX IF NOT EXISTS idx_sal_user ON system_audit_log(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_sal_created ON system_audit_log(created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_sal_entity ON system_audit_log(entity_type, entity_id)',
+    // notifications
+    'CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_notif_read ON notifications(is_read)',
+    'CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at)',
+    // transaction_prefix_config
+    'CREATE INDEX IF NOT EXISTS idx_tpc_type ON transaction_prefix_config(program_type)',
+    // app_module_config
+    'CREATE INDEX IF NOT EXISTS idx_amc_enabled ON app_module_config(is_enabled)',
+    // audit_simulations
+    'CREATE INDEX IF NOT EXISTS idx_asim_fac ON audit_simulations(facility_id)',
+    'CREATE INDEX IF NOT EXISTS idx_asim_user ON audit_simulations(user_id)',
+    // compliance_assessments
+    'CREATE INDEX IF NOT EXISTS idx_comply_fac ON compliance_assessments(facility_id)',
+    // training_records
+    'CREATE INDEX IF NOT EXISTS idx_train_user ON training_records(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_train_status ON training_records(status)',
+    // audit_findings
+    'CREATE INDEX IF NOT EXISTS idx_af_sim ON audit_findings(simulation_id)',
+    'CREATE INDEX IF NOT EXISTS idx_af_severity ON audit_findings(severity)',
+    'CREATE INDEX IF NOT EXISTS idx_af_status ON audit_findings(status)',
+  ];
+  for (const sql of indexes) {
+    await db.execute(sql);
+  }
+
   // Promote user ID 1 (Daniel) to admin if not already
   await db.execute({
     sql: "UPDATE users SET role = 'admin' WHERE id = 1 AND role != 'admin'",

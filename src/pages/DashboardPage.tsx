@@ -5,8 +5,8 @@ import {
   ClipboardCheck, BarChart3, Building2, Truck, Users, Leaf, Download,
   CalendarDays, CircleAlert, BadgeCheck, FlaskConical, ChevronDown, ChevronUp, Target
 } from 'lucide-react';
-import { reportsAPI, calendarAPI, auditFindingsAPI, correctiveActionAPI, modulesAPI } from '@/api';
-import { useAuthStore } from '@/store';
+import { reportsAPI, calendarAPI, auditFindingsAPI, correctiveActionAPI } from '@/api';
+import { useAuthStore, useModuleStore } from '@/store';
 
 // ── Calendar types ──
 interface CalendarEvent {
@@ -241,19 +241,20 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [findingsSummary, setFindingsSummary] = useState<any>(null);
   const [capaSummary, setCapaSummary] = useState<any>(null);
-  const [enabledModules, setEnabledModules] = useState<Set<string>>(new Set());
+  const globalModules = useModuleStore((s) => s.enabledModules);
+  const modulesLoaded = useModuleStore((s) => s.loaded);
+  const enabledModules = modulesLoaded && globalModules.size > 0
+    ? globalModules
+    : new Set(Object.values(ROUTE_MODULE_MAP));
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [dashRes, calRes, modulesRes] = await Promise.all([
+        const [dashRes, calRes] = await Promise.all([
           reportsAPI.dashboard(),
           calendarAPI.getEvents(90),
-          modulesAPI.getEnabled().catch(() => ({ data: { modules: [] } })),
         ]);
-        // Set enabled modules (fallback: all modules if endpoint fails)
-        const mods = modulesRes.data?.modules || [];
-        setEnabledModules(mods.length > 0 ? new Set(mods) : new Set(Object.values(ROUTE_MODULE_MAP)));
+        // Modules are loaded once at app boot via useModuleStore
         setDashboard(dashRes.data);
 
         // Transform calendar data into events

@@ -10,6 +10,23 @@ export interface User {
   role: string;
 }
 
+// ── Module config store (singleton, fetched once) ──────────────────
+interface ModuleStore {
+  enabledModules: Set<string>;
+  loaded: boolean;
+  loading: boolean;
+  setModules: (modules: string[]) => void;
+  setLoading: (v: boolean) => void;
+}
+
+export const useModuleStore = create<ModuleStore>((set) => ({
+  enabledModules: new Set<string>(),
+  loaded: false,
+  loading: false,
+  setModules: (modules) => set({ enabledModules: new Set(modules), loaded: true, loading: false }),
+  setLoading: (v) => set({ loading: v }),
+}));
+
 interface AuthStore {
   user: User | null;
   token: string | null;

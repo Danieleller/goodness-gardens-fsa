@@ -1,8 +1,8 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { LogOut, Menu, X, ChevronDown, User, Settings, Search, Bell, Clock, Home, FileText, Users as UsersIcon, ClipboardCheck, AlertTriangle, Building2, Shield } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useAuthStore } from '@/store';
-import { notificationsAPI, modulesAPI, searchAPI } from '@/api';
+import { useAuthStore, useModuleStore } from '@/store';
+import { notificationsAPI, searchAPI } from '@/api';
 
 // Search result type icons & labels
 const searchTypeIcons: Record<string, React.ReactNode> = {
@@ -122,9 +122,12 @@ export function Header() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [enabledModules, setEnabledModules] = useState<Set<string>>(
-    () => new Set(allNavGroups.flatMap(g => g.items.filter(i => i.moduleKey).map(i => i.moduleKey!)))
-  );
+  const globalModules = useModuleStore((s) => s.enabledModules);
+  const modulesLoaded = useModuleStore((s) => s.loaded);
+  // Use global store if loaded, otherwise show all modules as fallback
+  const enabledModules = modulesLoaded
+    ? globalModules
+    : new Set(allNavGroups.flatMap(g => g.items.filter(i => i.moduleKey).map(i => i.moduleKey!)));
   const [recentPages, setRecentPages] = useState<{ path: string; label: string; time: number }[]>(() => {
     try {
       const saved = sessionStorage.getItem('fsqa_recent_pages');
@@ -233,17 +236,7 @@ export function Header() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const loadModules = async () => {
-      try {
-        const res = await modulesAPI.getEnabled();
-        setEnabledModules(new Set(res.data?.modules || []));
-      } catch {
-        setEnabledModules(new Set(allNavGroups.flatMap(g => g.items.filter(i => i.moduleKey).map(i => i.moduleKey!))));
-      }
-    };
-    loadModules();
-  }, []);
+  // Modules are now fetched once at app boot via useModuleStore (in App.tsx)
 
   // Hover dropdown handlers with delay for smooth UX
   const handleMouseEnter = useCallback((label: string) => {
