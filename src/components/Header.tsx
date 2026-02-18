@@ -1,9 +1,16 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, Menu, X, ChevronDown, User, Settings } from 'lucide-react';
+import { LogOut, Menu, X, ChevronDown, User, Settings, Search } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store';
+import { SearchModal } from './SearchModal';
 
-const navGroups = [
+interface NavGroup {
+  label: string;
+  items: { to: string; label: string }[];
+  roles: string[];
+}
+
+const allNavGroups: NavGroup[] = [
   {
     label: 'Operations',
     items: [
@@ -13,6 +20,7 @@ const navGroups = [
       { to: '/checklists', label: 'Checklists' },
       { to: '/supply-master', label: 'Supply Master' },
     ],
+    roles: ['worker', 'farmer', 'supervisor', 'fsqa', 'management', 'admin'],
   },
   {
     label: 'Compliance',
@@ -22,6 +30,7 @@ const navGroups = [
       { to: '/gap-analysis', label: 'Gap Analysis' },
       { to: '/audit-simulator', label: 'Audit Simulator' },
     ],
+    roles: ['fsqa', 'management', 'admin'],
   },
   {
     label: 'Management',
@@ -31,13 +40,19 @@ const navGroups = [
       { to: '/facilities', label: 'Facilities' },
       { to: '/reports', label: 'Reports' },
     ],
+    roles: ['supervisor', 'fsqa', 'management', 'admin'],
   },
 ];
+
+function getNavGroups(role: string): NavGroup[] {
+  return allNavGroups.filter((g) => g.roles.includes(role));
+}
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
@@ -89,7 +104,14 @@ export function Header() {
           </button>
 
           <nav ref={dropdownRef} className="hidden lg:flex items-center gap-1">
-            {navGroups.map((group) => (
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium hover:bg-white/10 transition text-white/80"
+              title="Search (Ctrl+K)"
+            >
+              <Search size={16} />
+            </button>
+            {getNavGroups(user.role).map((group) => (
               <div key={group.label} className="relative">
                 <button
                   onClick={() => setOpenDropdown(openDropdown === group.label ? null : group.label)}
@@ -181,7 +203,7 @@ export function Header() {
 
       {mobileMenuOpen && (
         <div className="lg:hidden border-t border-white/20 px-4 pb-4" style={{ backgroundColor: '#1A3A5C' }}>
-          {navGroups.map((group) => (
+          {getNavGroups(user.role).map((group) => (
             <div key={group.label} className="mt-3">
               <div className="text-blue-200 text-xs font-semibold uppercase tracking-wider mb-1">{group.label}</div>
               {group.items.map((item) => (
@@ -225,6 +247,7 @@ export function Header() {
           </div>
         </div>
       )}
+      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
     </header>
   );
 }

@@ -33,7 +33,7 @@ const inviteSchema = z.object({
 });
 
 const adminUpdateSchema = z.object({
-  role: z.enum(['farmer', 'supervisor', 'admin']).optional(),
+  role: z.enum(['worker', 'farmer', 'supervisor', 'fsqa', 'management', 'admin']).optional(),
   is_active: z.number().min(0).max(1).optional(),
   facility_id: z.number().nullable().optional(),
   title: z.string().optional(),
@@ -62,6 +62,207 @@ async function requireSupervisor(userId: number, db: any): Promise<boolean> {
   });
   const userRow = result.rows[0] as any;
   return result.rows.length > 0 && (userRow.role === 'admin' || userRow.role === 'supervisor');
+}
+
+// ============================================================================
+// PHASE 1: RBAC, SEARCH, TRANSACTIONS, AUDIT LOG HELPERS
+// ============================================================================
+
+async function requireRole(userId: number, db: any, allowedRoles: string[]): Promise<{ allowed: boolean; role: string }> {
+  const result = await db.execute({
+    sql: 'SELECT role FROM users WHERE id = ? AND is_active = 1',
+    args: [userId],
+  });
+  if (result.rows.length === 0) return { allowed: false, role: '' };
+  const role = (result.rows[0] as any).role;
+  return { allowed: allowedRoles.includes(role), role };
+}
+
+async function requirePermission(userId: number, db: any, permissionCode: string): Promise<boolean> {
+  const result = await db.execute({
+    sql: `SELECT 1 FROM users u
+          JOIN role_permissions rp ON u.role = rp.role
+          WHERE u.id = ? AND u.is_active = 1 AND rp.permission_code = ?`,
+    args: [userId, permissionCode],
+  });
+  return result.rows.length > 0;
+}
+
+async function getUserRole(userId: number, db: any): Promise<string> {
+  const result = await db.execute({
+    sql: 'SELECT role FROM users WHERE id = ? AND is_active = 1',
+    args: [userId],
+  });
+  return result.rows.length > 0 ? (result.rows[0] as any).role : '';
+}
+
+async function logAuditAction(db: any, userId: number, action: string, entityType: string, entityId: number | null, before?: any, after?: any) {
+  try {
+    await db.execute({
+      sql: `INSERT INTO system_audit_log (user_id, action, entity_type, entity_id, before_value, after_value)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+      args: [userId, action, entityType, entityId, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null],
+    });
+  } catch (_e) { /* silently fail audit logging */ }
+}
+
+async function generateTransactionId(db: any, programType: string): Promise<string | null> {
+  const config = await db.execute({
+    sql: 'SELECT prefix, next_number FROM transaction_prefix_config WHERE program_type = ? AND is_active = 1',
+    args: [programType],
+  });
+  if (config.rows.length === 0) return null;
+  const row = config.rows[0] as any;
+  const txId = `${row.prefix}-${row.next_number}`;
+  await db.execute({
+    sql: 'UPDATE transaction_prefix_config SET next_number = next_number + 1 WHERE program_type = ?',
+    args: [programType],
+  });
+  return txId;
+}
+
+async function upsertSearchIndex(db: any, entityType: string, entityId: number, title: string, subtitle: string | null, tags: string | null, facilityId: number | null, url: string) {
+  const tokens = [title, subtitle, tags].filter(Boolean).join(' ').toLowerCase();
+  try {
+    await db.execute({
+      sql: `INSERT INTO search_index (entity_type, entity_id, title, subtitle, tokens, tags, facility_id, url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+              title = excluded.title, subtitle = excluded.subtitle, tokens = excluded.tokens,
+              tags = excluded.tags, facility_id = excluded.facility_id, url = excluded.url,
+              updated_at = datetime('now')`,
+      args: [entityType, entityId, title, subtitle, tokens, tags, facilityId, url],
+    });
+  } catch (_e) { /* silently fail search indexing */ }
+}
+
+// ============================================================================
+// SEARCH HANDLER
+// ============================================================================
+
+async function handleSearch(req: VercelRequest, res: VercelResponse, db: any, userId: number) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+
+  const q = String(req.query?.q || '').trim().toLowerCase();
+  if (!q || q.length < 2) return res.status(200).json({ results: [] });
+
+  const typeFilter = req.query?.type ? String(req.query.type) : null;
+  const limit = Math.min(Number(req.query?.limit) || 20, 50);
+
+  // Build WHERE clause
+  const words = q.split(/\s+/).filter(Boolean);
+  const conditions: string[] = [];
+  const args: any[] = [];
+
+  for (const word of words) {
+    conditions.push('tokens LIKE ?');
+    args.push(`%${word}%`);
+  }
+
+  let sql = `SELECT entity_type, entity_id, title, subtitle, tags, url,
+             CASE WHEN LOWER(title) = ? THEN 100
+                  WHEN LOWER(title) LIKE ? THEN 80
+                  ELSE 50 END as relevance
+             FROM search_index
+             WHERE ${conditions.join(' AND ')}`;
+  const relevanceArgs = [q, `%${q}%`];
+
+  if (typeFilter) {
+    sql += ' AND entity_type = ?';
+    args.push(typeFilter);
+  }
+
+  sql += ' ORDER BY relevance DESC, updated_at DESC LIMIT ?';
+  args.push(limit);
+
+  const result = await db.execute({ sql, args: [...relevanceArgs, ...args] });
+
+  // Group results by type
+  const grouped: Record<string, any[]> = {};
+  for (const row of result.rows) {
+    const r = row as any;
+    if (!grouped[r.entity_type]) grouped[r.entity_type] = [];
+    grouped[r.entity_type].push({
+      entity_type: r.entity_type,
+      entity_id: r.entity_id,
+      title: r.title,
+      subtitle: r.subtitle,
+      tags: r.tags,
+      url: r.url,
+    });
+  }
+
+  return res.status(200).json({ results: grouped, total: result.rows.length });
+}
+
+// ============================================================================
+// SETUP HANDLERS (Transaction Config, Audit Log, Permissions)
+// ============================================================================
+
+async function handleSetup(req: VercelRequest, res: VercelResponse, db: any, userId: number, pathArray: string[]) {
+  const isAdminUser = await requireAdmin(userId, db);
+  if (!isAdminUser) return res.status(403).json({ error: 'Admin access required' });
+
+  const section = pathArray[0];
+
+  // GET /api/setup/transaction-config
+  if (section === 'transaction-config') {
+    if (req.method === 'GET') {
+      const result = await db.execute({ sql: 'SELECT * FROM transaction_prefix_config ORDER BY program_type', args: [] });
+      return res.status(200).json(result.rows);
+    }
+    if (req.method === 'PUT' && pathArray[1]) {
+      const id = Number(pathArray[1]);
+      const { prefix, next_number, is_active } = req.body || {};
+      const before = await db.execute({ sql: 'SELECT * FROM transaction_prefix_config WHERE id = ?', args: [id] });
+      if (prefix !== undefined) {
+        await db.execute({ sql: 'UPDATE transaction_prefix_config SET prefix = ? WHERE id = ?', args: [prefix, id] });
+      }
+      if (next_number !== undefined) {
+        await db.execute({ sql: 'UPDATE transaction_prefix_config SET next_number = ? WHERE id = ?', args: [next_number, id] });
+      }
+      if (is_active !== undefined) {
+        await db.execute({ sql: 'UPDATE transaction_prefix_config SET is_active = ? WHERE id = ?', args: [is_active, id] });
+      }
+      const after = await db.execute({ sql: 'SELECT * FROM transaction_prefix_config WHERE id = ?', args: [id] });
+      await logAuditAction(db, userId, 'update', 'transaction_prefix_config', id, before.rows[0], after.rows[0]);
+      return res.status(200).json(after.rows[0]);
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // GET /api/setup/audit-log
+  if (section === 'audit-log') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const limit = Math.min(Number(req.query?.limit) || 50, 200);
+    const offset = Number(req.query?.offset) || 0;
+    const result = await db.execute({
+      sql: `SELECT sal.*, u.first_name, u.last_name, u.email
+            FROM system_audit_log sal
+            LEFT JOIN users u ON sal.user_id = u.id
+            ORDER BY sal.created_at DESC
+            LIMIT ? OFFSET ?`,
+      args: [limit, offset],
+    });
+    const count = await db.execute({ sql: 'SELECT COUNT(*) as total FROM system_audit_log', args: [] });
+    return res.status(200).json({ logs: result.rows, total: (count.rows[0] as any).total });
+  }
+
+  // GET /api/setup/permissions
+  if (section === 'permissions') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const perms = await db.execute({ sql: 'SELECT * FROM permissions ORDER BY category, code', args: [] });
+    const rolePerms = await db.execute({ sql: 'SELECT * FROM role_permissions ORDER BY role, permission_code', args: [] });
+    return res.status(200).json({ permissions: perms.rows, rolePermissions: rolePerms.rows });
+  }
+
+  // GET /api/setup/roles
+  if (section === 'roles') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(200).json({ roles: ['worker', 'supervisor', 'fsqa', 'management', 'admin'] });
+  }
+
+  return res.status(404).json({ error: 'Setup section not found' });
 }
 
 // ============================================================================
@@ -2221,6 +2422,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // PRIMUS AUDIT CHECKLIST
     if (pathArray[0] === 'primus-checklist') {
       return await handlePrimusChecklist(req, res, db, userId, pathArray[1], pathArray[2]);
+    }
+
+    // GLOBAL SEARCH
+    if (pathArray[0] === 'search') {
+      return await handleSearch(req, res, db, userId);
+    }
+
+    // SETUP / ADMIN CONFIG
+    if (pathArray[0] === 'setup') {
+      return await handleSetup(req, res, db, userId, pathArray.slice(1));
     }
 
     // NETSUITE INTEGRATION

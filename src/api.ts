@@ -184,6 +184,26 @@ export const primusChecklistAPI = {
   toggle: (itemId: number) => api.put(`/primus-checklist/toggle/${itemId}`),
 };
 
+export const searchAPI = {
+  search: (q: string, type?: string) => api.get('/search', { params: { q, ...(type && { type }) } }),
+};
+
+export const setupAPI = {
+  transactionConfig: {
+    getAll: () => api.get('/setup/transaction-config'),
+    update: (id: number, data: any) => api.put(`/setup/transaction-config/${id}`, data),
+  },
+  auditLog: {
+    getAll: (params?: { limit?: number; offset?: number }) => api.get('/setup/audit-log', { params }),
+  },
+  permissions: {
+    getAll: () => api.get('/setup/permissions'),
+  },
+  roles: {
+    getAll: () => api.get('/setup/roles'),
+  },
+};
+
 export const certAPI = {
   list: () => api.get('/netsuite/certifications'),
   upload: (data: any) => api.post('/netsuite/certifications', data),

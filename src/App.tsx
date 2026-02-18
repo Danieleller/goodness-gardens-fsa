@@ -13,6 +13,7 @@ import { CorrectiveActionsPage } from '@/pages/CorrectiveActionsPage';
 import { ReportsPage } from '@/pages/ReportsPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { AdminProtectedRoute } from '@/components/AdminProtectedRoute';
+import { RoleProtectedRoute } from '@/components/RoleProtectedRoute';
 import { FacilitiesPage } from '@/pages/FacilitiesPage';
 import { ChecklistsPage } from '@/pages/ChecklistsPage';
 import { SOPHubPage } from '@/pages/SOPHubPage';
@@ -77,17 +78,17 @@ export default function App() {
         <Route
           path="/corrective-actions"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['supervisor', 'fsqa', 'management', 'admin']}>
               <CorrectiveActionsPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
           path="/reports"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['supervisor', 'fsqa', 'management', 'admin']}>
               <ReportsPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
@@ -117,33 +118,33 @@ export default function App() {
         <Route
           path="/sops"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}>
               <SOPHubPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
           path="/gap-analysis"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}>
               <GapAnalysisPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
           path="/audit-simulator"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}>
               <AuditSimulatorPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
           path="/suppliers"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}>
               <SupplierPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route
@@ -157,9 +158,9 @@ export default function App() {
         <Route
           path="/audit-checklist"
           element={
-            <ProtectedRoute>
+            <RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}>
               <AuditChecklistPage />
-            </ProtectedRoute>
+            </RoleProtectedRoute>
           }
         />
         <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />

@@ -402,6 +402,76 @@ export async function initDb() {
       uploaded_at TEXT DEFAULT (datetime('now')),
       notes TEXT DEFAULT '',
       FOREIGN KEY (item_id) REFERENCES primus_checklist_items(id)
+    )`,
+    // ====================================================================
+    // PHASE 1: RBAC, Search, Transactions, Audit Log
+    // ====================================================================
+    `CREATE TABLE IF NOT EXISTS permissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      description TEXT,
+      category TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS role_permissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      role TEXT NOT NULL,
+      permission_code TEXT NOT NULL,
+      UNIQUE(role, permission_code)
+    )`,
+    `CREATE TABLE IF NOT EXISTS search_index (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      subtitle TEXT,
+      tokens TEXT,
+      tags TEXT,
+      facility_id INTEGER,
+      url TEXT,
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(entity_type, entity_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS transaction_prefix_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      program_type TEXT UNIQUE NOT NULL,
+      prefix TEXT NOT NULL,
+      next_number INTEGER DEFAULT 100001,
+      is_active INTEGER DEFAULT 1
+    )`,
+    `CREATE TABLE IF NOT EXISTS transaction_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_id TEXT UNIQUE NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER NOT NULL,
+      facility_id INTEGER,
+      created_by INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      status TEXT DEFAULT 'submitted',
+      approved_by INTEGER,
+      approved_at TEXT,
+      voided_by INTEGER,
+      voided_at TEXT,
+      void_reason TEXT,
+      FOREIGN KEY (created_by) REFERENCES users(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS transaction_print_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_id TEXT NOT NULL,
+      printed_by INTEGER NOT NULL,
+      printed_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (printed_by) REFERENCES users(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS system_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id INTEGER,
+      before_value TEXT,
+      after_value TEXT,
+      ip_address TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
     )`
   ];
 
@@ -663,6 +733,8 @@ async function seedDb() {
     for (const code of ['CORP', 'GH', 'TV', 'PU']) {
       await db.execute({ sql: 'DELETE FROM facilities WHERE code = ?', args: [code] });
     }
+    // Still run Phase 1 seeds on existing installations
+    await seedPhase1(db);
     seedData = true;
     return;
   }
@@ -886,5 +958,124 @@ async function seedDb() {
     });
   }
 
+  // ====================================================================
+  // PHASE 1: Seed RBAC permissions, transaction prefixes, migrate roles
+  // ====================================================================
+  await seedPhase1(db);
+
   seedData = true;
+}
+
+async function seedPhase1(db: ReturnType<typeof createClient>) {
+  // --- Migrate farmer → worker ---
+  await db.execute({ sql: "UPDATE users SET role = 'worker' WHERE role = 'farmer'", args: [] });
+
+  // --- Seed permissions ---
+  const permissionSeeds = [
+    // Operations
+    { code: 'dashboard.view', description: 'View dashboard', category: 'operations' },
+    { code: 'pre_harvest.view', description: 'View pre-harvest logs', category: 'operations' },
+    { code: 'pre_harvest.edit', description: 'Create/edit pre-harvest logs', category: 'operations' },
+    { code: 'chemicals.view', description: 'View chemical records', category: 'operations' },
+    { code: 'chemicals.edit', description: 'Create/edit chemical records', category: 'operations' },
+    { code: 'checklists.view', description: 'View checklists', category: 'operations' },
+    { code: 'checklists.submit', description: 'Submit checklists', category: 'operations' },
+    { code: 'checklists.approve', description: 'Approve/sign-off checklists', category: 'operations' },
+    { code: 'supply_master.view', description: 'View supply master', category: 'operations' },
+    // Compliance
+    { code: 'audit_checklist.view', description: 'View audit checklist', category: 'compliance' },
+    { code: 'audit_checklist.edit', description: 'Edit audit checklist', category: 'compliance' },
+    { code: 'sops.view', description: 'View SOPs', category: 'compliance' },
+    { code: 'sops.edit', description: 'Create/edit SOPs', category: 'compliance' },
+    { code: 'gap_analysis.view', description: 'View gap analysis', category: 'compliance' },
+    { code: 'audit_simulator.view', description: 'View audit simulator', category: 'compliance' },
+    { code: 'audit_simulator.run', description: 'Run audit simulations', category: 'compliance' },
+    // Management
+    { code: 'corrective_actions.view', description: 'View corrective actions', category: 'management' },
+    { code: 'corrective_actions.edit', description: 'Create/edit corrective actions', category: 'management' },
+    { code: 'suppliers.view', description: 'View suppliers', category: 'management' },
+    { code: 'suppliers.edit', description: 'Create/edit suppliers', category: 'management' },
+    { code: 'facilities.view', description: 'View facilities', category: 'management' },
+    { code: 'facilities.edit', description: 'Edit facilities', category: 'management' },
+    { code: 'reports.view', description: 'View reports', category: 'management' },
+    { code: 'reports.export', description: 'Export reports', category: 'management' },
+    // Admin / Setup
+    { code: 'admin.users', description: 'Manage users', category: 'admin' },
+    { code: 'admin.roles', description: 'Manage roles & permissions', category: 'admin' },
+    { code: 'admin.setup', description: 'Access setup panel', category: 'admin' },
+    { code: 'admin.audit_log', description: 'View system audit log', category: 'admin' },
+    { code: 'admin.transaction_config', description: 'Configure transaction prefixes', category: 'admin' },
+  ];
+
+  for (const p of permissionSeeds) {
+    try {
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO permissions (code, description, category) VALUES (?, ?, ?)',
+        args: [p.code, p.description, p.category],
+      });
+    } catch (_e) { /* ignore duplicates */ }
+  }
+
+  // --- Seed role-permission mappings ---
+  const roleMap: Record<string, string[]> = {
+    worker: [
+      'dashboard.view', 'pre_harvest.view', 'pre_harvest.edit',
+      'chemicals.view', 'chemicals.edit', 'checklists.view', 'checklists.submit',
+    ],
+    supervisor: [
+      'dashboard.view', 'pre_harvest.view', 'pre_harvest.edit',
+      'chemicals.view', 'chemicals.edit', 'checklists.view', 'checklists.submit', 'checklists.approve',
+      'corrective_actions.view', 'corrective_actions.edit',
+      'facilities.view', 'reports.view',
+    ],
+    fsqa: [
+      'dashboard.view', 'pre_harvest.view', 'pre_harvest.edit',
+      'chemicals.view', 'chemicals.edit', 'checklists.view', 'checklists.submit', 'checklists.approve',
+      'supply_master.view',
+      'audit_checklist.view', 'audit_checklist.edit', 'sops.view', 'sops.edit',
+      'gap_analysis.view', 'audit_simulator.view', 'audit_simulator.run',
+      'corrective_actions.view', 'corrective_actions.edit',
+      'suppliers.view', 'suppliers.edit',
+      'facilities.view', 'reports.view', 'reports.export',
+    ],
+    management: [
+      'dashboard.view', 'pre_harvest.view', 'chemicals.view',
+      'checklists.view', 'supply_master.view',
+      'audit_checklist.view', 'sops.view', 'gap_analysis.view',
+      'audit_simulator.view', 'audit_simulator.run',
+      'corrective_actions.view', 'suppliers.view',
+      'facilities.view', 'reports.view', 'reports.export',
+    ],
+    admin: permissionSeeds.map(p => p.code),
+  };
+
+  for (const [role, perms] of Object.entries(roleMap)) {
+    for (const permCode of perms) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO role_permissions (role, permission_code) VALUES (?, ?)',
+          args: [role, permCode],
+        });
+      } catch (_e) { /* ignore duplicates */ }
+    }
+  }
+
+  // --- Seed transaction prefix config ---
+  const prefixSeeds = [
+    { program_type: 'sanitation', prefix: 'S' },
+    { program_type: 'pre_harvest', prefix: 'PH' },
+    { program_type: 'chemical', prefix: 'CH' },
+    { program_type: 'general', prefix: 'GN' },
+    { program_type: 'corrective_action', prefix: 'CA' },
+    { program_type: 'audit', prefix: 'AU' },
+  ];
+
+  for (const s of prefixSeeds) {
+    try {
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO transaction_prefix_config (program_type, prefix) VALUES (?, ?)',
+        args: [s.program_type, s.prefix],
+      });
+    } catch (_e) { /* ignore duplicates */ }
+  }
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { UserPlus, RotateCcw, UserX, UserCheck, Shield, ShieldOff, AlertCircle, X, Check, Mail, Copy, ChevronDown, Building2, MapPin, Briefcase } from 'lucide-react';
-import { adminAPI, facilitiesAPI } from '@/api';
+import { UserPlus, RotateCcw, UserX, UserCheck, Shield, ShieldOff, AlertCircle, X, Check, Mail, Copy, ChevronDown, Building2, MapPin, Briefcase, Users, Lock, FileText, ClipboardList } from 'lucide-react';
+import { adminAPI, facilitiesAPI, setupAPI } from '@/api';
 
 interface Facility {
   id: number;
@@ -26,24 +26,43 @@ interface ManagedUser {
 }
 
 const ROLES = [
-  { value: 'farmer', label: 'Worker', color: 'bg-blue-100 text-blue-800' },
+  { value: 'worker', label: 'Worker', color: 'bg-blue-100 text-blue-800' },
+  { value: 'farmer', label: 'Worker (Legacy)', color: 'bg-blue-100 text-blue-800' },
   { value: 'supervisor', label: 'Supervisor', color: 'bg-yellow-100 text-yellow-800' },
+  { value: 'fsqa', label: 'FSQA', color: 'bg-teal-100 text-teal-800' },
+  { value: 'management', label: 'Management', color: 'bg-indigo-100 text-indigo-800' },
   { value: 'admin', label: 'Admin', color: 'bg-purple-100 text-purple-800' },
+];
+
+const TABS = [
+  { id: 'users', label: 'Users', icon: Users },
+  { id: 'roles', label: 'Roles & Permissions', icon: Lock },
+  { id: 'transactions', label: 'Transaction Config', icon: FileText },
+  { id: 'audit-log', label: 'Audit Log', icon: ClipboardList },
 ];
 
 const APP_URL = 'https://goodness-gardens-fsa.vercel.app';
 
 export function AdminPage() {
+  const [activeTab, setActiveTab] = useState('users');
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Setup data
+  const [permissions, setPermissions] = useState<any[]>([]);
+  const [roleMappings, setRoleMappings] = useState<any[]>([]);
+  const [allRoles, setAllRoles] = useState<string[]>([]);
+  const [txConfigs, setTxConfigs] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [setupLoading, setSetupLoading] = useState(false);
+
   // Invite form
   const [showInvite, setShowInvite] = useState(false);
   const [inviteData, setInviteData] = useState({
-    first_name: '', last_name: '', email: '', temp_password: '', organization_name: 'Goodness Gardens', title: '', role: 'farmer', facility_id: '' as string,
+    first_name: '', last_name: '', email: '', temp_password: '', organization_name: 'Goodness Gardens', title: '', role: 'worker', facility_id: '' as string,
   });
   const [inviteLoading, setInviteLoading] = useState(false);
 
@@ -80,7 +99,38 @@ export function AdminPage() {
     }
   };
 
+  const fetchSetupData = async (tab: string) => {
+    setSetupLoading(true);
+    try {
+      if (tab === 'roles') {
+        const [permRes, roleRes] = await Promise.all([
+          setupAPI.permissions.getAll(),
+          setupAPI.roles.getAll(),
+        ]);
+        setPermissions(permRes.data.permissions || []);
+        setRoleMappings(permRes.data.role_mappings || []);
+        setAllRoles(roleRes.data.roles || []);
+      } else if (tab === 'transactions') {
+        const res = await setupAPI.transactionConfig.getAll();
+        setTxConfigs(res.data || []);
+      } else if (tab === 'audit-log') {
+        const res = await setupAPI.auditLog.getAll({ limit: 50 });
+        setAuditLogs(res.data || []);
+      }
+    } catch (err: any) {
+      console.error('Failed to load setup data', err);
+    } finally {
+      setSetupLoading(false);
+    }
+  };
+
   useEffect(() => { fetchUsers(); fetchFacilities(); }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'users') {
+      fetchSetupData(activeTab);
+    }
+  }, [activeTab]);
 
   const showMessage = (msg: string, isError = false) => {
     if (isError) { setError(msg); setSuccess(''); }
@@ -102,8 +152,8 @@ export function AdminPage() {
         facility_id: inviteData.facility_id ? Number(inviteData.facility_id) : null,
       };
       await adminAPI.users.create(payload);
-      // If a role other than farmer was selected, update it
-      if (inviteData.role !== 'farmer') {
+      // If a role other than worker was selected, update it
+      if (inviteData.role !== 'worker' && inviteData.role !== 'farmer') {
         const refreshed = await adminAPI.users.getAll();
         const newUser = (refreshed.data as ManagedUser[]).find((u: ManagedUser) => u.email === inviteData.email);
         if (newUser) {
@@ -233,23 +283,177 @@ export function AdminPage() {
     return { label: 'Organization', code: 'ALL', isOrg: true };
   };
 
+  const renderRolesTab = () => {
+    if (setupLoading) return <div className="text-center py-12 text-gray-500">Loading...</div>;
+    const roleList = allRoles.length > 0 ? allRoles : ['worker', 'supervisor', 'fsqa', 'management', 'admin'];
+    const permsByCategory: Record<string, any[]> = {};
+    permissions.forEach((p: any) => {
+      const cat = p.category || 'other';
+      if (!permsByCategory[cat]) permsByCategory[cat] = [];
+      permsByCategory[cat].push(p);
+    });
+    const mappingSet = new Set(roleMappings.map((rm: any) => `${rm.role}::${rm.permission_code}`));
+    return (
+      <div className="bg-white rounded-lg shadow-md overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Permission</th>
+              {roleList.map((r: string) => (
+                <th key={r} className="text-center px-3 py-3 font-medium text-gray-600 capitalize">{r}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(permsByCategory).map(([cat, perms]) => (
+              <>{/* category header */}
+                <tr key={`cat-${cat}`}>
+                  <td colSpan={roleList.length + 1} className="px-4 py-2 bg-gray-100 font-semibold text-gray-700 capitalize text-xs uppercase tracking-wider">{cat}</td>
+                </tr>
+                {perms.map((p: any) => (
+                  <tr key={p.code} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-2 text-gray-700">
+                      <div className="font-medium">{p.code}</div>
+                      {p.description && <div className="text-xs text-gray-400">{p.description}</div>}
+                    </td>
+                    {roleList.map((r: string) => (
+                      <td key={r} className="text-center px-3 py-2">
+                        {mappingSet.has(`${r}::${p.code}`) ? (
+                          <span className="inline-block w-5 h-5 bg-green-100 text-green-700 rounded-full leading-5 text-xs font-bold">✓</span>
+                        ) : (
+                          <span className="inline-block w-5 h-5 text-gray-300">—</span>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </>
+            ))}
+          </tbody>
+        </table>
+        {permissions.length === 0 && <div className="text-center py-8 text-gray-500">No permissions configured yet. They will be seeded on first API call.</div>}
+      </div>
+    );
+  };
+
+  const renderTransactionsTab = () => {
+    if (setupLoading) return <div className="text-center py-12 text-gray-500">Loading...</div>;
+    return (
+      <div className="bg-white rounded-lg shadow-md">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Program Type</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Prefix</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Next Number</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {txConfigs.map((cfg: any) => (
+              <tr key={cfg.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 font-medium text-gray-900 capitalize">{cfg.program_type.replace(/_/g, ' ')}</td>
+                <td className="px-4 py-3"><span className="font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-800">{cfg.prefix}</span></td>
+                <td className="px-4 py-3 font-mono text-gray-600">{cfg.next_number}</td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cfg.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {cfg.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {txConfigs.length === 0 && <div className="text-center py-8 text-gray-500">No transaction prefixes configured yet.</div>}
+      </div>
+    );
+  };
+
+  const renderAuditLogTab = () => {
+    if (setupLoading) return <div className="text-center py-12 text-gray-500">Loading...</div>;
+    return (
+      <div className="bg-white rounded-lg shadow-md">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Time</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">User</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Action</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Entity</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Details</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {auditLogs.map((log: any) => (
+              <tr key={log.id} className="hover:bg-gray-50">
+                <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
+                <td className="px-4 py-3 text-gray-700">{log.user_name || `User #${log.user_id}`}</td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                    log.action === 'create' ? 'bg-green-100 text-green-800' :
+                    log.action === 'update' ? 'bg-blue-100 text-blue-800' :
+                    log.action === 'delete' ? 'bg-red-100 text-red-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>{log.action}</span>
+                </td>
+                <td className="px-4 py-3 text-gray-700 capitalize">{log.entity_type?.replace(/_/g, ' ')}{log.entity_id ? ` #${log.entity_id}` : ''}</td>
+                <td className="px-4 py-3 text-gray-500 text-xs max-w-[300px] truncate">{log.after_value || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {auditLogs.length === 0 && <div className="text-center py-8 text-gray-500">No audit log entries yet.</div>}
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
-          <p className="text-gray-600 mt-1">Invite, manage, and control access for your team</p>
+          <h1 className="text-3xl font-bold text-gray-900">Setup & Administration</h1>
+          <p className="text-gray-600 mt-1">Manage users, roles, permissions, and system configuration</p>
         </div>
-        <button
-          onClick={() => { setShowInvite(!showInvite); setInviteResult(null); }}
-          className="flex items-center gap-2 text-white px-4 py-2 rounded-lg hover:opacity-90 transition"
-          style={{ backgroundColor: '#1A3A5C' }}
-        >
-          <UserPlus size={18} />
-          Invite User
-        </button>
+        {activeTab === 'users' && (
+          <button
+            onClick={() => { setShowInvite(!showInvite); setInviteResult(null); }}
+            className="flex items-center gap-2 text-white px-4 py-2 rounded-lg hover:opacity-90 transition"
+            style={{ backgroundColor: '#1A3A5C' }}
+          >
+            <UserPlus size={18} />
+            Invite User
+          </button>
+        )}
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'border-blue-600 text-blue-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Icon size={16} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Non-users tabs */}
+      {activeTab === 'roles' && renderRolesTab()}
+      {activeTab === 'transactions' && renderTransactionsTab()}
+      {activeTab === 'audit-log' && renderAuditLogTab()}
+
+      {/* Users tab content */}
+      {activeTab !== 'users' ? null : <>
       {/* Messages */}
       {error && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3 items-center">
@@ -389,8 +593,10 @@ export function AdminPage() {
                 onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               >
-                <option value="farmer">Worker (field worker, basic access)</option>
+                <option value="worker">Worker (field worker, basic access)</option>
                 <option value="supervisor">Supervisor (can sign off checklists)</option>
+                <option value="fsqa">FSQA (food safety & quality assurance)</option>
+                <option value="management">Management (reports & oversight)</option>
                 <option value="admin">Admin (full access, manage users)</option>
               </select>
             </div>
@@ -634,6 +840,7 @@ export function AdminPage() {
           )}
         </div>
       )}
+      </>}
     </div>
   );
 }
