@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, CheckCircle, Filter, ExternalLink } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, Filter, ExternalLink, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { correctiveActionAPI, facilitiesAPI, auditFindingsAPI } from '@/api';
 
