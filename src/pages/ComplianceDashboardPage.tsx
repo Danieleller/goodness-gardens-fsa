@@ -124,8 +124,8 @@ export function ComplianceDashboardPage() {
           complianceAPI.getMatrix(selectedFacilityId),
         ]);
 
-        setScoreData(scoreRes.data);
-        setMatrixData(matrixRes.data);
+        setScoreData(scoreRes.data || null);
+        setMatrixData(matrixRes.data?.matrix ? matrixRes.data : { matrix: [] });
         setRequirementsMap({});
         setExpandedModule(null);
       } catch (error) {
@@ -366,7 +366,7 @@ export function ComplianceDashboardPage() {
             <div className="mb-8">
               <h2 className="text-2xl font-bold text-gray-800 mb-4">Module Scores</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {scoreData.module_scores.map((module) => (
+                {(scoreData.module_scores || []).map((module) => (
                   <div key={module.module_code}>
                     <div
                       onClick={() => handleModuleClick(module.module_code)}
@@ -469,7 +469,7 @@ export function ComplianceDashboardPage() {
             </div>
 
             {/* Compliance Matrix */}
-            {matrixData && matrixData.matrix.length > 0 && (
+            {matrixData && matrixData.matrix && matrixData.matrix.length > 0 && (
               <div className="bg-white rounded-xl shadow-md p-6 border border-green-100">
                 <h2 className="text-2xl font-bold text-gray-800 mb-4">Compliance Matrix</h2>
                 <div className="overflow-x-auto">

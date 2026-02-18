@@ -2757,22 +2757,37 @@ async function handleCompliance(req: VercelRequest, res: VercelResponse, db: any
       if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
 
       const matrixResult = await db.execute({
-        sql: `SELECT DISTINCT am.code as module_code, am.name as module_name,
+        sql: `SELECT am.code as module_code, am.name as module_name,
                      fs.code as standard_code, fs.name as standard_name,
-                     COUNT(DISTINCT fr.id) as total_requirements,
-                     SUM(CASE WHEN fr.id IS NOT NULL THEN 1 ELSE 0 END) as satisfied_requirements
+                     COUNT(DISTINCT fr.id) as total,
+                     0 as satisfied
               FROM facility_modules fm
               JOIN audit_modules am ON fm.module_id = am.id
               JOIN fsms_requirements fr ON am.id = fr.module_id
-              LEFT JOIN fsms_clauses fc ON fr.clause_id = fc.id
-              LEFT JOIN fsms_standards fs ON fc.standard_id = fs.id
-              WHERE fm.facility_id = ?
+              JOIN fsms_clauses fc ON fr.clause_id = fc.id
+              JOIN fsms_standards fs ON fc.standard_id = fs.id
+              WHERE fm.facility_id = ? AND fm.is_applicable = 1
               GROUP BY am.id, fs.id
               ORDER BY am.code, fs.code`,
         args: [facilityId],
       });
 
-      return res.status(200).json((matrixResult.rows as any[]) || []);
+      // Group flat rows into nested matrix structure
+      const moduleMap: Record<string, { module_code: string; module_name: string; standards: any[] }> = {};
+      for (const row of (matrixResult.rows as any[])) {
+        if (!moduleMap[row.module_code]) {
+          moduleMap[row.module_code] = { module_code: row.module_code, module_name: row.module_name, standards: [] };
+        }
+        moduleMap[row.module_code].standards.push({
+          standard_code: row.standard_code,
+          standard_name: row.standard_name,
+          total: Number(row.total),
+          satisfied: Number(row.satisfied),
+          pct: Number(row.total) > 0 ? Math.round((Number(row.satisfied) / Number(row.total)) * 100) : 0,
+        });
+      }
+
+      return res.status(200).json({ matrix: Object.values(moduleMap) });
     }
 
     // GET /compliance/modules/{moduleCode}/requirements
