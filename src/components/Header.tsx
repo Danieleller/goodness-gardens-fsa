@@ -125,10 +125,11 @@ export function Header() {
   const [notifOpen, setNotifOpen] = useState(false);
   const globalModules = useModuleStore((s) => s.enabledModules);
   const modulesLoaded = useModuleStore((s) => s.loaded);
-  // Use global store if loaded, otherwise show all modules as fallback
-  const enabledModules = modulesLoaded
+  // Use global store if loaded AND non-empty, otherwise show all modules as fallback
+  const allModuleKeys = new Set(allNavGroups.flatMap(g => g.items.filter(i => i.moduleKey).map(i => i.moduleKey!)));
+  const enabledModules = (modulesLoaded && globalModules.size > 0)
     ? globalModules
-    : new Set(allNavGroups.flatMap(g => g.items.filter(i => i.moduleKey).map(i => i.moduleKey!)));
+    : allModuleKeys;
   const [recentPages, setRecentPages] = useState<{ path: string; label: string; time: number }[]>(() => {
     try {
       const saved = sessionStorage.getItem('fsqa_recent_pages');
