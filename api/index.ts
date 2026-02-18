@@ -2533,6 +2533,309 @@ async function handleNetSuiteSupplyMaster(req: VercelRequest, res: VercelRespons
 }
 
 // ============================================================================
+// COMPLIANCE SCORING ENGINE
+// ============================================================================
+
+interface ComplianceScoreResult {
+  overall_score: number;
+  overall_grade: string;
+  module_scores: Array<{
+    module_code: string;
+    module_name: string;
+    score: number;
+    status: string;
+    requirements_met: number;
+    requirements_total: number;
+  }>;
+  sop_readiness_pct: number;
+  checklist_submissions_pct: number;
+  audit_coverage_pct: number;
+  critical_findings: number;
+  major_findings: number;
+  minor_findings: number;
+}
+
+async function calculateComplianceScore(db: any, facilityId: number, simulationId?: number): Promise<ComplianceScoreResult> {
+  // Get applicable modules for facility
+  const modulesResult = await db.execute({
+    sql: `SELECT DISTINCT am.id, am.code, am.name, am.max_points
+          FROM facility_modules fm
+          JOIN audit_modules am ON fm.module_id = am.id
+          WHERE fm.facility_id = ?`,
+    args: [facilityId],
+  });
+
+  const modules = (modulesResult.rows as any[]) || [];
+  const moduleScores: any[] = [];
+  let totalWeightedScore = 0;
+  let totalWeightedMax = 0;
+  let criticalFindings = 0;
+  let majorFindings = 0;
+  let minorFindings = 0;
+
+  for (const module of modules) {
+    // Get requirements for this module
+    const reqResult = await db.execute({
+      sql: `SELECT id, code, name, criticality FROM fsms_requirements WHERE module_id = ?`,
+      args: [module.id],
+    });
+
+    const requirements = (reqResult.rows as any[]) || [];
+    let moduleEarned = 0;
+    let moduleMax = 0;
+    let requirementsMet = 0;
+
+    for (const req of requirements) {
+      // Get criticality weight
+      const criticality = req.criticality || 'minor';
+      const weight = criticality === 'critical' ? 3 : criticality === 'major' ? 2 : 1;
+
+      // Count finding severity
+      if (criticality === 'critical') criticalFindings++;
+      else if (criticality === 'major') majorFindings++;
+      else minorFindings++;
+
+      moduleMax += weight;
+
+      // Get evidence links for this requirement
+      const evidenceResult = await db.execute({
+        sql: `SELECT evidence_type, linked_id FROM requirement_evidence_links WHERE requirement_id = ?`,
+        args: [req.id],
+      });
+
+      const evidenceLinks = (evidenceResult.rows as any[]) || [];
+      let evidenceSatisfied = false;
+
+      for (const ev of evidenceLinks) {
+        if (ev.evidence_type === 'audit_question' && simulationId) {
+          // Check audit response score
+          const scoreResult = await db.execute({
+            sql: `SELECT score, max_points FROM audit_responses
+                  WHERE question_id = ? AND simulation_id = ?`,
+            args: [ev.linked_id, simulationId],
+          });
+          if (scoreResult.rows && scoreResult.rows.length > 0) {
+            const row = (scoreResult.rows[0] as any);
+            const pct = row.max_points > 0 ? (row.score / row.max_points) * 100 : 0;
+            if (pct >= 70) {
+              evidenceSatisfied = true;
+              break;
+            }
+          }
+        } else if (ev.evidence_type === 'sop') {
+          // Check SOP status
+          const sopResult = await db.execute({
+            sql: `SELECT status FROM sop_facility_status WHERE sop_id = ? AND facility_id = ?`,
+            args: [ev.linked_id, facilityId],
+          });
+          if (sopResult.rows && sopResult.rows.length > 0) {
+            const row = (sopResult.rows[0] as any);
+            if (row.status === 'current') {
+              evidenceSatisfied = true;
+              break;
+            }
+          }
+        } else if (ev.evidence_type === 'checklist') {
+          // Check recent checklist submission (within 90 days)
+          const checklistResult = await db.execute({
+            sql: `SELECT submitted_at FROM checklist_submissions
+                  WHERE checklist_id = ? AND facility_id = ?
+                  AND submitted_at >= date('now', '-90 days')
+                  ORDER BY submitted_at DESC LIMIT 1`,
+            args: [ev.linked_id, facilityId],
+          });
+          if (checklistResult.rows && checklistResult.rows.length > 0) {
+            evidenceSatisfied = true;
+            break;
+          }
+        }
+      }
+
+      if (evidenceSatisfied) {
+        moduleEarned += weight;
+        requirementsMet++;
+      }
+    }
+
+    // Calculate module score
+    const moduleScore = moduleMax > 0 ? (moduleEarned / moduleMax) * 100 : 0;
+    const moduleStatus = moduleScore >= 70 ? 'PASS' : 'FAIL';
+
+    moduleScores.push({
+      module_code: module.code,
+      module_name: module.name,
+      score: Math.round(moduleScore * 100) / 100,
+      status: moduleStatus,
+      requirements_met: requirementsMet,
+      requirements_total: requirements.length,
+    });
+
+    totalWeightedScore += moduleEarned;
+    totalWeightedMax += moduleMax;
+  }
+
+  // Calculate overall score
+  const overallScore = totalWeightedMax > 0 ? (totalWeightedScore / totalWeightedMax) * 100 : 0;
+
+  // Determine grade
+  let overallGrade = 'FAIL';
+  if (moduleScores.length > 0 && !moduleScores.some(m => m.status === 'FAIL')) {
+    if (overallScore >= 97) overallGrade = 'A+';
+    else if (overallScore >= 92) overallGrade = 'A';
+    else if (overallScore >= 85) overallGrade = 'B';
+    else if (overallScore >= 75) overallGrade = 'C';
+    else if (overallScore >= 60) overallGrade = 'D';
+  }
+
+  // Calculate readiness percentages
+  const sopResult = await db.execute({
+    sql: `SELECT COUNT(*) as total, SUM(CASE WHEN status = 'current' THEN 1 ELSE 0 END) as current
+          FROM sop_facility_status WHERE facility_id = ?`,
+    args: [facilityId],
+  });
+  const sopData = (sopResult.rows[0] as any);
+  const sopReadinessPct = sopData.total > 0 ? (sopData.current / sopData.total) * 100 : 0;
+
+  const checklistResult = await db.execute({
+    sql: `SELECT COUNT(DISTINCT ct.id) as total FROM checklist_templates ct
+          LEFT JOIN checklist_submissions cs ON ct.id = cs.checklist_id AND cs.facility_id = ?
+          AND cs.submitted_at >= date('now', '-90 days')
+          WHERE ct.facility_type = (SELECT facility_type FROM facilities WHERE id = ?)`,
+    args: [facilityId, facilityId],
+  });
+  const checklistCount = ((checklistResult.rows[0] as any)?.total || 0);
+  const checklistSubmissionResult = await db.execute({
+    sql: `SELECT COUNT(*) as submitted FROM checklist_submissions
+          WHERE facility_id = ? AND submitted_at >= date('now', '-90 days')`,
+    args: [facilityId],
+  });
+  const checklistSubmitted = ((checklistSubmissionResult.rows[0] as any)?.submitted || 0);
+  const checklistSubmissionsPct = checklistCount > 0 ? (checklistSubmitted / checklistCount) * 100 : 0;
+
+  const auditCoveragePct = modules.length > 0 ? (moduleScores.filter(m => m.status === 'PASS').length / modules.length) * 100 : 0;
+
+  return {
+    overall_score: Math.round(overallScore * 100) / 100,
+    overall_grade: overallGrade,
+    module_scores: moduleScores,
+    sop_readiness_pct: Math.round(sopReadinessPct * 100) / 100,
+    checklist_submissions_pct: Math.round(checklistSubmissionsPct * 100) / 100,
+    audit_coverage_pct: Math.round(auditCoveragePct * 100) / 100,
+    critical_findings: criticalFindings,
+    major_findings: majorFindings,
+    minor_findings: minorFindings,
+  };
+}
+
+async function handleCompliance(req: VercelRequest, res: VercelResponse, db: any, userId: number, path: string[]) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    // GET /compliance/facilities/{facilityId}/score
+    if (path[0] === 'facilities' && path[2] === 'score') {
+      const facilityId = parseInt(path[1], 10);
+      if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
+
+      const simulationId = req.query?.simulation_id ? parseInt(req.query.simulation_id as string, 10) : undefined;
+      const result = await calculateComplianceScore(db, facilityId, simulationId);
+
+      // Save assessment if requested
+      if (req.query?.save_assessment === 'true') {
+        await db.execute({
+          sql: `INSERT INTO compliance_assessments (facility_id, overall_score, overall_grade, assessment_data)
+                VALUES (?, ?, ?, ?)`,
+          args: [facilityId, result.overall_score, result.overall_grade, JSON.stringify(result)],
+        });
+      }
+
+      return res.status(200).json(result);
+    }
+
+    // GET /compliance/facilities/{facilityId}/matrix
+    if (path[0] === 'facilities' && path[2] === 'matrix') {
+      const facilityId = parseInt(path[1], 10);
+      if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
+
+      const matrixResult = await db.execute({
+        sql: `SELECT DISTINCT am.code as module_code, am.name as module_name,
+                     fs.code as standard_code, fs.name as standard_name,
+                     COUNT(DISTINCT fr.id) as total_requirements,
+                     SUM(CASE WHEN fr.id IS NOT NULL THEN 1 ELSE 0 END) as satisfied_requirements
+              FROM facility_modules fm
+              JOIN audit_modules am ON fm.module_id = am.id
+              JOIN fsms_requirements fr ON am.id = fr.module_id
+              LEFT JOIN fsms_clauses fc ON fr.clause_id = fc.id
+              LEFT JOIN fsms_standards fs ON fc.standard_id = fs.id
+              WHERE fm.facility_id = ?
+              GROUP BY am.id, fs.id
+              ORDER BY am.code, fs.code`,
+        args: [facilityId],
+      });
+
+      return res.status(200).json((matrixResult.rows as any[]) || []);
+    }
+
+    // GET /compliance/modules/{moduleCode}/requirements
+    if (path[0] === 'modules' && path[2] === 'requirements') {
+      const moduleCode = path[1];
+      const facilityId = req.query?.facility_id ? parseInt(req.query.facility_id as string, 10) : null;
+      if (!facilityId) return res.status(400).json({ error: 'facility_id required' });
+
+      const reqResult = await db.execute({
+        sql: `SELECT fr.id, fr.code, fr.name, fr.criticality, am.code as module_code
+              FROM fsms_requirements fr
+              JOIN audit_modules am ON fr.module_id = am.id
+              WHERE am.code = ?`,
+        args: [moduleCode],
+      });
+
+      const requirements = (reqResult.rows as any[]) || [];
+      const enriched = [];
+
+      for (const req of requirements) {
+        const evidenceResult = await db.execute({
+          sql: `SELECT evidence_type, linked_id FROM requirement_evidence_links WHERE requirement_id = ?`,
+          args: [req.id],
+        });
+        enriched.push({
+          ...req,
+          evidence_links: (evidenceResult.rows as any[]) || [],
+        });
+      }
+
+      return res.status(200).json(enriched);
+    }
+
+    // GET /compliance/assessments/history
+    if (path[0] === 'assessments' && path[1] === 'history') {
+      const facilityId = req.query?.facility_id ? parseInt(req.query.facility_id as string, 10) : null;
+      if (!facilityId) return res.status(400).json({ error: 'facility_id required' });
+
+      const historyResult = await db.execute({
+        sql: `SELECT id, facility_id, overall_score, overall_grade, assessment_data, created_at
+              FROM compliance_assessments
+              WHERE facility_id = ?
+              ORDER BY created_at DESC
+              LIMIT 20`,
+        args: [facilityId],
+      });
+
+      return res.status(200).json((historyResult.rows as any[]) || []);
+    }
+
+    return res.status(404).json({ error: 'Not found' });
+  } catch (error) {
+    console.error('Compliance handler error:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
+// ============================================================================
 // MAIN HANDLER
 // ============================================================================
 
@@ -2667,6 +2970,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handleAuditFindings(req, res, db, userId, pathArray[2], pathArray[3]);
       }
       return res.status(404).json({ error: 'Not found' });
+    }
+
+    // COMPLIANCE ROUTES
+    if (pathArray[0] === 'compliance') {
+      return await handleCompliance(req, res, db, userId, pathArray.slice(1));
     }
 
     // SUPPLIERS ROUTES

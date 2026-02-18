@@ -228,6 +228,17 @@ export const setupAPI = {
   },
 };
 
+export const complianceAPI = {
+  getScore: (facilityId: number, params?: { simulation_id?: number; save_assessment?: boolean }) =>
+    api.get(`/compliance/facilities/${facilityId}/score`, { params }),
+  getMatrix: (facilityId: number) =>
+    api.get(`/compliance/facilities/${facilityId}/matrix`),
+  getRequirements: (moduleCode: string, facilityId: number) =>
+    api.get(`/compliance/modules/${moduleCode}/requirements`, { params: { facility_id: facilityId } }),
+  getHistory: (facilityId: number) =>
+    api.get('/compliance/assessments/history', { params: { facility_id: facilityId } }),
+};
+
 export const certAPI = {
   list: () => api.get('/netsuite/certifications'),
   upload: (data: any) => api.post('/netsuite/certifications', data),

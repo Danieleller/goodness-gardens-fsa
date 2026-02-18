@@ -29,6 +29,7 @@ const allNavGroups: NavGroup[] = [
       { to: '/sops', label: 'SOP Hub' },
       { to: '/gap-analysis', label: 'Gap Analysis' },
       { to: '/audit-simulator', label: 'Audit Simulator' },
+      { to: '/compliance', label: 'Compliance Dashboard' },
     ],
     roles: ['fsqa', 'management', 'admin'],
   },

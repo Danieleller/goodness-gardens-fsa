@@ -519,6 +519,75 @@ export async function initDb() {
       FOREIGN KEY (question_id) REFERENCES audit_questions_v2(id),
       FOREIGN KEY (facility_id) REFERENCES facilities(id),
       FOREIGN KEY (created_by) REFERENCES users(id)
+    )`,
+
+    // ── PHASE 3: FSMS Matrix Integration ──
+    `CREATE TABLE IF NOT EXISTS fsms_standards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      version TEXT DEFAULT '1.0',
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS fsms_clauses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      standard_id INTEGER NOT NULL,
+      clause_code TEXT NOT NULL,
+      clause_title TEXT NOT NULL,
+      description TEXT,
+      parent_clause_id INTEGER,
+      sort_order INTEGER DEFAULT 0,
+      FOREIGN KEY (standard_id) REFERENCES fsms_standards(id),
+      FOREIGN KEY (parent_clause_id) REFERENCES fsms_clauses(id),
+      UNIQUE(standard_id, clause_code)
+    )`,
+    `CREATE TABLE IF NOT EXISTS fsms_requirements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      clause_id INTEGER NOT NULL,
+      requirement_code TEXT UNIQUE NOT NULL,
+      requirement_text TEXT NOT NULL,
+      criticality TEXT DEFAULT 'major',
+      module_id INTEGER,
+      is_required INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (clause_id) REFERENCES fsms_clauses(id),
+      FOREIGN KEY (module_id) REFERENCES audit_modules(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS requirement_evidence_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      requirement_id INTEGER NOT NULL,
+      evidence_type TEXT NOT NULL,
+      evidence_id INTEGER,
+      evidence_code TEXT,
+      evidence_title TEXT,
+      is_primary INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (requirement_id) REFERENCES fsms_requirements(id),
+      UNIQUE(requirement_id, evidence_type, evidence_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS compliance_assessments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      facility_id INTEGER NOT NULL,
+      assessment_date TEXT NOT NULL,
+      assessment_type TEXT DEFAULT 'audit',
+      scope TEXT DEFAULT 'all_modules',
+      overall_score REAL,
+      overall_grade TEXT,
+      module_scores TEXT,
+      module_statuses TEXT,
+      sop_readiness_pct REAL,
+      checklist_submissions_pct REAL,
+      audit_coverage_pct REAL,
+      critical_findings_count INTEGER DEFAULT 0,
+      major_findings_count INTEGER DEFAULT 0,
+      minor_findings_count INTEGER DEFAULT 0,
+      assessed_by INTEGER,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id),
+      FOREIGN KEY (assessed_by) REFERENCES users(id)
     )`
   ];
 
@@ -1009,6 +1078,7 @@ async function seedDb() {
   // PHASE 1: Seed RBAC permissions, transaction prefixes, migrate roles
   // ====================================================================
   await seedPhase1(db);
+  await seedPhase3(db);
 
   seedData = true;
 }
@@ -1135,5 +1205,664 @@ async function seedPhase1(db: ReturnType<typeof createClient>) {
   ];
   for (const sql of phase2Migrations) {
     try { await db.execute(sql); } catch (_e) { /* column already exists */ }
+  }
+}
+
+async function seedPhase3(db: ReturnType<typeof createClient>) {
+  // ====================================================================
+  // PHASE 3: Seed M2-M9 audit questions, FSMS standards, clauses, requirements, and evidence links
+  // ====================================================================
+
+  // Check if M2-M9 questions already exist
+  const existingQCheck = await db.execute("SELECT COUNT(*) as cnt FROM audit_questions_v2 WHERE question_code LIKE '2.%'");
+  if ((existingQCheck.rows[0] as any).cnt > 0) {
+    return; // Already seeded
+  }
+
+  // Get module IDs
+  const moduleRows = await db.execute("SELECT id, code FROM audit_modules");
+  const moduleMap: Record<string, number> = {};
+  for (const r of moduleRows.rows) {
+    moduleMap[(r as any).code] = (r as any).id;
+  }
+
+  // ====================================================================
+  // 1. SEED M2-M9 AUDIT QUESTIONS
+  // ====================================================================
+
+  // M2 - Farm Operations (15 questions)
+  const m2Questions = [
+    { code: '2.01.01', text: 'Pre-plant soil testing program with documented results and corrective actions', points: 10, auto_fail: 0, category: 'Soil Management', nop_ref: '§205.203', required_sop: 'GG-GAP-001', frequency: 'Per season', role: 'Farm Manager' },
+    { code: '2.01.02', text: 'Water source risk assessment and testing schedule (pre-harvest agricultural water)', points: 10, auto_fail: 1, category: 'Water Testing', nop_ref: '§205.202', required_sop: 'GG-GAP-002', frequency: 'Per season', role: 'FSQA Manager' },
+    { code: '2.01.03', text: 'Biological soil amendment application records with required intervals', points: 5, auto_fail: 0, category: 'Soil Management', nop_ref: '§205.203(c)', required_sop: 'GG-GAP-001', frequency: 'Per application', role: 'Farm Manager' },
+    { code: '2.01.04', text: 'Field history and adjacent land-use assessment documentation', points: 5, auto_fail: 0, category: 'Field Assessment', nop_ref: '§205.202(b)', required_sop: 'GG-GAP-003', frequency: 'Annual', role: 'Farm Manager' },
+    { code: '2.02.01', text: 'Worker hygiene training records for field personnel', points: 5, auto_fail: 0, category: 'Training', nop_ref: null, required_sop: 'GG-GAP-004', frequency: 'Annual', role: 'HR/Training' },
+    { code: '2.02.02', text: 'Portable toilet and handwashing station placement and maintenance logs', points: 5, auto_fail: 0, category: 'Field Sanitation', nop_ref: null, required_sop: 'GG-GAP-004', frequency: 'Daily', role: 'Field Supervisor' },
+    { code: '2.02.03', text: 'Field equipment cleaning and sanitization procedures with verification', points: 5, auto_fail: 0, category: 'Equipment', nop_ref: null, required_sop: 'GG-GAP-005', frequency: 'Per use', role: 'Farm Manager' },
+    { code: '2.03.01', text: 'Harvest crew health screening and illness reporting procedures', points: 10, auto_fail: 1, category: 'Worker Health', nop_ref: null, required_sop: 'GG-GMP-003', frequency: 'Daily', role: 'Field Supervisor' },
+    { code: '2.03.02', text: 'Harvest container inspection and cleaning logs', points: 5, auto_fail: 0, category: 'Harvest', nop_ref: null, required_sop: 'GG-GAP-005', frequency: 'Per harvest', role: 'Field Supervisor' },
+    { code: '2.03.03', text: 'Field-pack temperature monitoring and cold chain initiation records', points: 5, auto_fail: 0, category: 'Cold Chain', nop_ref: null, required_sop: 'GG-GMP-006', frequency: 'Per harvest', role: 'Quality Technician' },
+    { code: '2.04.01', text: 'Growing area wildlife and domestic animal intrusion prevention', points: 3, auto_fail: 0, category: 'Field Assessment', nop_ref: null, required_sop: 'GG-GAP-003', frequency: 'Daily', role: 'Farm Manager' },
+    { code: '2.04.02', text: 'Flooding history assessment and post-flood response procedures', points: 5, auto_fail: 0, category: 'Environmental', nop_ref: null, required_sop: 'GG-GAP-003', frequency: 'Per event', role: 'FSQA Manager' },
+    { code: '2.05.01', text: 'Approved crop protection product list and application records', points: 5, auto_fail: 0, category: 'Chemicals', nop_ref: '§205.206', required_sop: 'GG-GAP-006', frequency: 'Per application', role: 'Farm Manager' },
+    { code: '2.05.02', text: 'Pre-harvest interval compliance verification records', points: 10, auto_fail: 1, category: 'Chemicals', nop_ref: null, required_sop: 'GG-GAP-006', frequency: 'Per harvest', role: 'FSQA Manager' },
+    { code: '2.05.03', text: 'Spray equipment calibration and maintenance records', points: 3, auto_fail: 0, category: 'Equipment', nop_ref: null, required_sop: 'GG-GAP-006', frequency: 'Annual', role: 'Farm Manager' },
+  ];
+
+  // M3 - Indoor Agriculture (12 questions)
+  const m3Questions = [
+    { code: '3.01.01', text: 'Controlled environment agriculture (CEA) standard operating procedures', points: 5, auto_fail: 0, category: 'Core Documentation', nop_ref: null, required_sop: 'GG-GAP-007', frequency: 'Annual', role: 'CEA Manager' },
+    { code: '3.01.02', text: 'Grow media sourcing verification and testing records', points: 5, auto_fail: 0, category: 'Input Verification', nop_ref: '§205.203', required_sop: 'GG-GAP-007', frequency: 'Per lot', role: 'CEA Manager' },
+    { code: '3.01.03', text: 'Nutrient solution formulation and monitoring records', points: 5, auto_fail: 0, category: 'Process Control', nop_ref: null, required_sop: 'GG-GAP-007', frequency: 'Daily', role: 'CEA Technician' },
+    { code: '3.02.01', text: 'Climate control system calibration and maintenance logs', points: 5, auto_fail: 0, category: 'Equipment', nop_ref: null, required_sop: 'GG-GAP-008', frequency: 'Monthly', role: 'Maintenance' },
+    { code: '3.02.02', text: 'Lighting system management and photoperiod documentation', points: 3, auto_fail: 0, category: 'Process Control', nop_ref: null, required_sop: 'GG-GAP-008', frequency: 'Weekly', role: 'CEA Technician' },
+    { code: '3.02.03', text: 'Air filtration and ventilation system maintenance records', points: 5, auto_fail: 0, category: 'Environmental', nop_ref: null, required_sop: 'GG-GAP-008', frequency: 'Monthly', role: 'Maintenance' },
+    { code: '3.03.01', text: 'Indoor growing area sanitation schedule and verification', points: 10, auto_fail: 0, category: 'Sanitation', nop_ref: null, required_sop: 'GG-GMP-001', frequency: 'Daily', role: 'Sanitation Manager' },
+    { code: '3.03.02', text: 'Water recycling system treatment and testing records', points: 5, auto_fail: 0, category: 'Water Testing', nop_ref: null, required_sop: 'GG-GAP-002', frequency: 'Weekly', role: 'Quality Technician' },
+    { code: '3.04.01', text: 'Integrated pest management plan specific to indoor operations', points: 5, auto_fail: 0, category: 'Pest Management', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Monthly', role: 'CEA Manager' },
+    { code: '3.04.02', text: 'Biological control agent usage and efficacy records', points: 3, auto_fail: 0, category: 'Pest Management', nop_ref: '§205.206(e)', required_sop: 'GG-GMP-009', frequency: 'Per application', role: 'CEA Technician' },
+    { code: '3.05.01', text: 'Indoor harvest procedures and product handling protocols', points: 5, auto_fail: 0, category: 'Harvest', nop_ref: null, required_sop: 'GG-GMP-006', frequency: 'Per harvest', role: 'CEA Manager' },
+    { code: '3.05.02', text: 'Employee access controls and hygiene requirements for grow rooms', points: 5, auto_fail: 0, category: 'Worker Health', nop_ref: null, required_sop: 'GG-GMP-003', frequency: 'Daily', role: 'CEA Manager' },
+  ];
+
+  // M4 - Harvest Operations (18 questions)
+  const m4Questions = [
+    { code: '4.01.01', text: 'Harvest crew daily health screening and sign-off records', points: 10, auto_fail: 1, category: 'Worker Health', nop_ref: null, required_sop: 'GG-GMP-003', frequency: 'Daily', role: 'Harvest Supervisor' },
+    { code: '4.01.02', text: 'Harvest equipment sanitization before and after use', points: 5, auto_fail: 0, category: 'Equipment', nop_ref: null, required_sop: 'GG-GMP-001', frequency: 'Per use', role: 'Harvest Supervisor' },
+    { code: '4.01.03', text: 'Personal protective equipment requirements and compliance checks', points: 3, auto_fail: 0, category: 'Worker Health', nop_ref: null, required_sop: 'GG-GMP-003', frequency: 'Daily', role: 'Harvest Supervisor' },
+    { code: '4.02.01', text: 'Harvest lot identification and traceability system', points: 15, auto_fail: 1, category: 'Traceability', nop_ref: '§205.103', required_sop: 'GG-GMP-007', frequency: 'Per lot', role: 'Quality Manager' },
+    { code: '4.02.02', text: 'Field-to-cooler time tracking and temperature logging', points: 10, auto_fail: 0, category: 'Cold Chain', nop_ref: null, required_sop: 'GG-GMP-006', frequency: 'Per harvest', role: 'Quality Technician' },
+    { code: '4.02.03', text: 'Product sampling and quality inspection at harvest', points: 5, auto_fail: 0, category: 'Quality', nop_ref: null, required_sop: 'GG-GMP-006', frequency: 'Per lot', role: 'Quality Technician' },
+    { code: '4.03.01', text: 'Harvest vehicle and transport container cleaning procedures', points: 5, auto_fail: 0, category: 'Sanitation', nop_ref: null, required_sop: 'GG-GMP-001', frequency: 'Per use', role: 'Sanitation Supervisor' },
+    { code: '4.03.02', text: 'Ice and water used during harvest: source verification and testing', points: 5, auto_fail: 0, category: 'Water Testing', nop_ref: null, required_sop: 'GG-GAP-002', frequency: 'Per use', role: 'Quality Technician' },
+    { code: '4.03.03', text: 'Glass and brittle materials policy in harvest areas', points: 5, auto_fail: 0, category: 'Foreign Material', nop_ref: null, required_sop: 'GG-GMP-004', frequency: 'Daily', role: 'Quality Manager' },
+    { code: '4.04.01', text: 'Organic product segregation procedures during harvest', points: 10, auto_fail: 1, category: 'Organic Integrity', nop_ref: '§205.272', required_sop: 'GG-ORG-002', frequency: 'Per harvest', role: 'Organic Coordinator' },
+    { code: '4.04.02', text: 'Non-conforming product handling and disposition during harvest', points: 5, auto_fail: 0, category: 'Quality', nop_ref: null, required_sop: 'GG-GMP-006', frequency: 'Per event', role: 'Quality Manager' },
+    { code: '4.04.03', text: 'Injured or ill worker exclusion protocol documentation', points: 10, auto_fail: 1, category: 'Worker Health', nop_ref: null, required_sop: 'GG-GMP-003', frequency: 'Per event', role: 'HR Manager' },
+    { code: '4.05.01', text: 'Harvest waste management and disposal procedures', points: 3, auto_fail: 0, category: 'Waste Management', nop_ref: null, required_sop: 'GG-GMP-010', frequency: 'Daily', role: 'Farm Manager' },
+    { code: '4.05.02', text: 'End-of-harvest cleaning and facility reset procedures', points: 3, auto_fail: 0, category: 'Sanitation', nop_ref: null, required_sop: 'GG-GMP-001', frequency: 'Per season', role: 'Sanitation Supervisor' },
+    { code: '4.06.01', text: 'Product recall or withdrawal mock drill during harvest season', points: 5, auto_fail: 0, category: 'Recall', nop_ref: null, required_sop: 'GG-GMP-008', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '4.06.02', text: 'Corrective action records for harvest deviations', points: 5, auto_fail: 0, category: 'CAPA', nop_ref: null, required_sop: 'GG-FSMS-014', frequency: 'Per event', role: 'FSQA Manager' },
+    { code: '4.06.03', text: 'Supplier vehicle inspection and acceptance criteria', points: 3, auto_fail: 0, category: 'Receiving', nop_ref: null, required_sop: 'GG-GMP-005', frequency: 'Per delivery', role: 'Receiving Clerk' },
+    { code: '4.06.04', text: 'Harvest season pre-operational assessment completion', points: 5, auto_fail: 0, category: 'Assessment', nop_ref: null, required_sop: 'GG-FSMS-004', frequency: 'Per season', role: 'FSQA Manager' },
+  ];
+
+  // M5 - Facility Operations (20 questions)
+  const m5Questions = [
+    { code: '5.01.01', text: 'Master sanitation schedule with daily, weekly, and monthly tasks', points: 10, auto_fail: 0, category: 'Sanitation', nop_ref: null, required_sop: 'GG-GMP-001', frequency: 'Daily', role: 'Sanitation Manager' },
+    { code: '5.01.02', text: 'Pre-operational sanitation verification records (ATP/visual)', points: 10, auto_fail: 1, category: 'Sanitation', nop_ref: null, required_sop: 'GG-GMP-001', frequency: 'Daily', role: 'Quality Technician' },
+    { code: '5.01.03', text: 'Chemical concentration verification for sanitizers and cleaners', points: 5, auto_fail: 0, category: 'Sanitation', nop_ref: null, required_sop: 'GG-GMP-001', frequency: 'Per use', role: 'Sanitation Manager' },
+    { code: '5.02.01', text: 'Facility maintenance program with preventive maintenance schedule', points: 5, auto_fail: 0, category: 'Maintenance', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Monthly', role: 'Maintenance Manager' },
+    { code: '5.02.02', text: 'Roof, walls, and floor condition assessment and repair logs', points: 3, auto_fail: 0, category: 'Maintenance', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Quarterly', role: 'Maintenance Manager' },
+    { code: '5.02.03', text: 'Loading dock and receiving area condition and cleanliness', points: 5, auto_fail: 0, category: 'Facility Design', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Daily', role: 'Receiving Supervisor' },
+    { code: '5.03.01', text: 'Potable water system testing and backflow prevention verification', points: 10, auto_fail: 1, category: 'Water Systems', nop_ref: '§205.202', required_sop: 'GG-GAP-002', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '5.03.02', text: 'Ice machine cleaning, maintenance, and water quality records', points: 5, auto_fail: 0, category: 'Water Systems', nop_ref: null, required_sop: 'GG-GAP-002', frequency: 'Weekly', role: 'Quality Technician' },
+    { code: '5.04.01', text: 'Temperature monitoring system calibration and alarm verification', points: 10, auto_fail: 0, category: 'Cold Chain', nop_ref: null, required_sop: 'GG-GMP-006', frequency: 'Monthly', role: 'Quality Manager' },
+    { code: '5.04.02', text: 'Cold storage temperature logs with deviation corrective actions', points: 10, auto_fail: 1, category: 'Cold Chain', nop_ref: null, required_sop: 'GG-GMP-006', frequency: 'Daily', role: 'Quality Technician' },
+    { code: '5.05.01', text: 'Waste management program including organic and non-organic waste streams', points: 5, auto_fail: 0, category: 'Waste Management', nop_ref: null, required_sop: 'GG-GMP-010', frequency: 'Daily', role: 'Sanitation Manager' },
+    { code: '5.05.02', text: 'Drainage system maintenance and inspection records', points: 3, auto_fail: 0, category: 'Facility Design', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Monthly', role: 'Maintenance Manager' },
+    { code: '5.06.01', text: 'Employee facilities: restrooms, break rooms, locker areas condition', points: 5, auto_fail: 0, category: 'Worker Welfare', nop_ref: null, required_sop: 'GG-GMP-003', frequency: 'Daily', role: 'HR Manager' },
+    { code: '5.06.02', text: 'Hand washing station adequacy and supply verification', points: 5, auto_fail: 0, category: 'Worker Health', nop_ref: null, required_sop: 'GG-GMP-003', frequency: 'Daily', role: 'Quality Technician' },
+    { code: '5.07.01', text: 'Foreign material control program (glass, wood, metal, plastic)', points: 10, auto_fail: 1, category: 'Foreign Material', nop_ref: null, required_sop: 'GG-GMP-004', frequency: 'Daily', role: 'Quality Manager' },
+    { code: '5.07.02', text: 'Metal detector or X-ray equipment calibration and test records', points: 5, auto_fail: 0, category: 'Foreign Material', nop_ref: null, required_sop: 'GG-GMP-004', frequency: 'Per shift', role: 'Quality Technician' },
+    { code: '5.08.01', text: 'Visitor and contractor access control and hygiene requirements', points: 3, auto_fail: 0, category: 'Access Control', nop_ref: null, required_sop: 'GG-GMP-003', frequency: 'Per visit', role: 'Security/Reception' },
+    { code: '5.08.02', text: 'Traffic flow plan preventing cross-contamination between zones', points: 5, auto_fail: 0, category: 'Facility Design', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '5.09.01', text: 'Allergen management program with segregation and labeling controls', points: 10, auto_fail: 1, category: 'Allergen Control', nop_ref: null, required_sop: 'GG-GMP-004', frequency: 'Daily', role: 'Quality Manager' },
+    { code: '5.09.02', text: 'Product labeling accuracy verification and compliance checks', points: 5, auto_fail: 0, category: 'Labeling', nop_ref: null, required_sop: 'GG-GMP-008', frequency: 'Per production run', role: 'Quality Technician' },
+  ];
+
+  // M6 - HACCP Program (15 questions)
+  const m6Questions = [
+    { code: '6.01.01', text: 'HACCP team composition with documented qualifications', points: 5, auto_fail: 0, category: 'HACCP Team', nop_ref: null, required_sop: 'GG-FSMS-008', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '6.01.02', text: 'Product description and intended use documentation', points: 5, auto_fail: 0, category: 'HACCP Plan', nop_ref: null, required_sop: 'GG-FSMS-008', frequency: 'Annual', role: 'Quality Manager' },
+    { code: '6.01.03', text: 'Process flow diagram verified on-site with documentation', points: 5, auto_fail: 0, category: 'HACCP Plan', nop_ref: null, required_sop: 'GG-FSMS-008', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '6.02.01', text: 'Comprehensive hazard analysis for biological, chemical, and physical hazards', points: 15, auto_fail: 1, category: 'Hazard Analysis', nop_ref: null, required_sop: 'GG-FSMS-008', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '6.02.02', text: 'CCP identification and justification with decision tree documentation', points: 10, auto_fail: 1, category: 'CCP Management', nop_ref: null, required_sop: 'GG-FSMS-008', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '6.02.03', text: 'Critical limits established for each CCP with scientific justification', points: 10, auto_fail: 0, category: 'CCP Management', nop_ref: null, required_sop: 'GG-FSMS-008', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '6.03.01', text: 'CCP monitoring procedures and frequency documentation', points: 10, auto_fail: 1, category: 'CCP Monitoring', nop_ref: null, required_sop: 'GG-FSMS-009', frequency: 'Per CCP', role: 'Quality Manager' },
+    { code: '6.03.02', text: 'CCP monitoring records complete and current', points: 10, auto_fail: 1, category: 'CCP Monitoring', nop_ref: null, required_sop: 'GG-FSMS-009', frequency: 'Daily', role: 'Quality Technician' },
+    { code: '6.03.03', text: 'Corrective action procedures when CCP deviations occur', points: 10, auto_fail: 0, category: 'CAPA', nop_ref: null, required_sop: 'GG-FSMS-014', frequency: 'Per event', role: 'FSQA Manager' },
+    { code: '6.04.01', text: 'HACCP plan verification activities schedule and records', points: 5, auto_fail: 0, category: 'Verification', nop_ref: null, required_sop: 'GG-FSMS-009', frequency: 'Monthly', role: 'FSQA Manager' },
+    { code: '6.04.02', text: 'HACCP plan annual reassessment and update documentation', points: 5, auto_fail: 0, category: 'Verification', nop_ref: null, required_sop: 'GG-FSMS-008', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '6.04.03', text: 'Validation of CCP critical limits with supporting evidence', points: 5, auto_fail: 0, category: 'Validation', nop_ref: null, required_sop: 'GG-FSMS-009', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '6.05.01', text: 'HACCP records retention policy and accessibility', points: 3, auto_fail: 0, category: 'Records', nop_ref: null, required_sop: 'GG-FSMS-004', frequency: 'Ongoing', role: 'Document Controller' },
+    { code: '6.05.02', text: 'Employee HACCP training records with competency assessment', points: 5, auto_fail: 0, category: 'Training', nop_ref: null, required_sop: 'GG-FSMS-005', frequency: 'Annual', role: 'HR/Training' },
+    { code: '6.05.03', text: 'HACCP plan signature and date of approval by responsible person', points: 3, auto_fail: 0, category: 'Authorization', nop_ref: null, required_sop: 'GG-FSMS-008', frequency: 'Annual', role: 'Plant Manager' },
+  ];
+
+  // M7 - Preventive Controls (12 questions)
+  const m7Questions = [
+    { code: '7.01.01', text: 'Written food safety plan meeting FSMA preventive controls requirements', points: 10, auto_fail: 1, category: 'Core Documentation', nop_ref: null, required_sop: 'GG-FSMS-010', frequency: 'Annual', role: 'PCQI' },
+    { code: '7.01.02', text: 'Preventive Controls Qualified Individual (PCQI) designation and training', points: 10, auto_fail: 1, category: 'Authorization', nop_ref: null, required_sop: 'GG-FSMS-010', frequency: 'Current', role: 'Plant Manager' },
+    { code: '7.02.01', text: 'Process preventive controls with monitoring and verification', points: 10, auto_fail: 0, category: 'Process Controls', nop_ref: null, required_sop: 'GG-FSMS-010', frequency: 'Per process', role: 'PCQI' },
+    { code: '7.02.02', text: 'Allergen preventive controls including cross-contact prevention', points: 10, auto_fail: 1, category: 'Allergen Control', nop_ref: null, required_sop: 'GG-GMP-004', frequency: 'Daily', role: 'Quality Manager' },
+    { code: '7.02.03', text: 'Sanitation preventive controls beyond prerequisite programs', points: 5, auto_fail: 0, category: 'Sanitation', nop_ref: null, required_sop: 'GG-GMP-001', frequency: 'Daily', role: 'Sanitation Manager' },
+    { code: '7.03.01', text: 'Supply chain preventive controls for incoming materials', points: 5, auto_fail: 0, category: 'Supply Chain', nop_ref: null, required_sop: 'GG-FSMS-011', frequency: 'Per receipt', role: 'Procurement Manager' },
+    { code: '7.03.02', text: 'Supplier approval program with hazard-based criteria', points: 5, auto_fail: 0, category: 'Supply Chain', nop_ref: null, required_sop: 'GG-FSMS-011', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '7.04.01', text: 'Recall plan with roles, procedures, and notification contacts', points: 10, auto_fail: 1, category: 'Recall', nop_ref: null, required_sop: 'GG-GMP-008', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '7.04.02', text: 'Mock recall exercise completed within 24-hour response', points: 5, auto_fail: 0, category: 'Recall', nop_ref: null, required_sop: 'GG-GMP-008', frequency: 'Annual', role: 'Quality Manager' },
+    { code: '7.05.01', text: 'Preventive control management components: monitoring records', points: 5, auto_fail: 0, category: 'Records', nop_ref: null, required_sop: 'GG-FSMS-010', frequency: 'Daily', role: 'Quality Technician' },
+    { code: '7.05.02', text: 'Corrective actions and corrections documentation for PC deviations', points: 5, auto_fail: 0, category: 'CAPA', nop_ref: null, required_sop: 'GG-FSMS-014', frequency: 'Per event', role: 'PCQI' },
+    { code: '7.05.03', text: 'Reanalysis of food safety plan triggered by changes or failures', points: 3, auto_fail: 0, category: 'Verification', nop_ref: null, required_sop: 'GG-FSMS-010', frequency: 'Per event', role: 'PCQI' },
+  ];
+
+  // M8 - Grain Operations (10 questions)
+  const m8Questions = [
+    { code: '8.01.01', text: 'Grain receiving inspection and grading records', points: 5, auto_fail: 0, category: 'Receiving', nop_ref: null, required_sop: 'GG-GMP-005', frequency: 'Per delivery', role: 'Grain Manager' },
+    { code: '8.01.02', text: 'Grain storage facility condition monitoring (temperature, moisture)', points: 10, auto_fail: 0, category: 'Storage', nop_ref: null, required_sop: 'GG-GMP-005', frequency: 'Daily', role: 'Storage Supervisor' },
+    { code: '8.01.03', text: 'Mycotoxin testing program with documented results and limits', points: 10, auto_fail: 1, category: 'Testing', nop_ref: null, required_sop: 'GG-GMP-005', frequency: 'Per lot', role: 'Quality Manager' },
+    { code: '8.02.01', text: 'Fumigation records with applicator certification and aeration logs', points: 5, auto_fail: 0, category: 'Pest Management', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Per treatment', role: 'Pest Operator' },
+    { code: '8.02.02', text: 'Grain handler training on safe handling and contamination prevention', points: 5, auto_fail: 0, category: 'Training', nop_ref: null, required_sop: 'GG-FSMS-005', frequency: 'Annual', role: 'HR/Training' },
+    { code: '8.02.03', text: 'Grain dust management and explosion prevention measures', points: 5, auto_fail: 0, category: 'Safety', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Daily', role: 'Safety Manager' },
+    { code: '8.03.01', text: 'Grain lot traceability from field/supplier to customer', points: 10, auto_fail: 1, category: 'Traceability', nop_ref: null, required_sop: 'GG-GMP-007', frequency: 'Per lot', role: 'Quality Manager' },
+    { code: '8.03.02', text: 'Organic grain segregation and identity preservation records', points: 10, auto_fail: 1, category: 'Organic Integrity', nop_ref: '§205.272', required_sop: 'GG-ORG-002', frequency: 'Ongoing', role: 'Organic Coordinator' },
+    { code: '8.04.01', text: 'Grain cleaning equipment maintenance and inspection logs', points: 3, auto_fail: 0, category: 'Equipment', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Monthly', role: 'Maintenance Manager' },
+    { code: '8.04.02', text: 'Post-harvest grain quality monitoring and shelf-life tracking', points: 5, auto_fail: 0, category: 'Quality', nop_ref: null, required_sop: 'GG-GMP-005', frequency: 'Monthly', role: 'Quality Technician' },
+  ];
+
+  // M9 - Integrated Pest Management (14 questions)
+  const m9Questions = [
+    { code: '9.01.01', text: 'Written IPM plan covering all facility and field areas', points: 5, auto_fail: 0, category: 'Core Documentation', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Annual', role: 'Pest Management Coordinator' },
+    { code: '9.01.02', text: 'Licensed pest control operator (PCO) contract and qualifications', points: 5, auto_fail: 0, category: 'Authorization', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Annual', role: 'Facilities Manager' },
+    { code: '9.02.01', text: 'Pest monitoring device placement map and inspection schedule', points: 5, auto_fail: 0, category: 'Monitoring', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Weekly', role: 'Pest Technician' },
+    { code: '9.02.02', text: 'Pest monitoring inspection records and trend analysis', points: 5, auto_fail: 0, category: 'Monitoring', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Weekly', role: 'Pest Technician' },
+    { code: '9.02.03', text: 'Pest activity threshold levels and escalation procedures', points: 5, auto_fail: 0, category: 'Process Control', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Per event', role: 'Pest Management Coordinator' },
+    { code: '9.03.01', text: 'Pesticide application records with applicator license verification', points: 10, auto_fail: 0, category: 'Chemical Control', nop_ref: '§205.206', required_sop: 'GG-GMP-009', frequency: 'Per application', role: 'Pest Operator' },
+    { code: '9.03.02', text: 'Approved pesticide/rodenticide list with SDS documentation', points: 5, auto_fail: 0, category: 'Chemical Control', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Annual', role: 'Pest Management Coordinator' },
+    { code: '9.03.03', text: 'Bait station placement map and tamper-evidence inspections', points: 3, auto_fail: 0, category: 'Monitoring', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Monthly', role: 'Pest Technician' },
+    { code: '9.04.01', text: 'Building exclusion measures: door sweeps, screens, gap sealing', points: 5, auto_fail: 0, category: 'Exclusion', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Quarterly', role: 'Maintenance Manager' },
+    { code: '9.04.02', text: 'Exterior perimeter maintenance reducing pest harborage', points: 3, auto_fail: 0, category: 'Exclusion', nop_ref: null, required_sop: 'GG-GMP-002', frequency: 'Monthly', role: 'Facilities Manager' },
+    { code: '9.05.01', text: 'Pest management corrective action records for sightings/incidents', points: 5, auto_fail: 0, category: 'CAPA', nop_ref: null, required_sop: 'GG-FSMS-014', frequency: 'Per event', role: 'Quality Manager' },
+    { code: '9.05.02', text: 'Annual pest management program review and effectiveness evaluation', points: 5, auto_fail: 0, category: 'Verification', nop_ref: null, required_sop: 'GG-GMP-009', frequency: 'Annual', role: 'FSQA Manager' },
+    { code: '9.05.03', text: 'Non-chemical pest control methods documentation and efficacy', points: 3, auto_fail: 0, category: 'Non-Chemical Control', nop_ref: '§205.206(e)', required_sop: 'GG-GMP-009', frequency: 'Ongoing', role: 'Pest Management Coordinator' },
+    { code: '9.05.04', text: 'Pest control training for relevant staff members', points: 3, auto_fail: 0, category: 'Training', nop_ref: null, required_sop: 'GG-FSMS-005', frequency: 'Annual', role: 'HR/Training' },
+  ];
+
+  // Insert M2-M9 questions
+  const allQuestions = [...m2Questions, ...m3Questions, ...m4Questions, ...m5Questions, ...m6Questions, ...m7Questions, ...m8Questions, ...m9Questions];
+
+  for (const question of allQuestions) {
+    const moduleCode = question.code.substring(0, 1);
+    const moduleId = moduleMap[`M${moduleCode}`];
+
+    try {
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO audit_questions_v2 (module_id, question_code, question_text, points, is_auto_fail, category, nop_ref, required_sop, frequency, responsible_role)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [moduleId, question.code, question.text, question.points, question.auto_fail, question.category, question.nop_ref, question.required_sop, question.frequency, question.role],
+      });
+    } catch (_e) { /* ignore duplicates */ }
+  }
+
+  // ====================================================================
+  // 2. SEED FSMS STANDARDS
+  // ====================================================================
+
+  const standards = [
+    { code: 'PRIMUS-v4', name: 'PrimusGFS v4.0', description: 'Global food safety audit standard', version: '4.0' },
+    { code: 'NOP', name: 'USDA National Organic Program', description: 'Organic certification requirements (7 CFR Part 205)', version: '2024' },
+    { code: 'FSMA', name: 'FDA Food Safety Modernization Act', description: 'Produce Safety Rule and Preventive Controls', version: '2024' },
+    { code: 'SEDEX', name: 'Sedex/SMETA Ethical Trade', description: 'Ethical trade assurance framework', version: '6.1' },
+  ];
+
+  const standardIds: Record<string, number> = {};
+
+  for (const standard of standards) {
+    try {
+      const result = await db.execute({
+        sql: `INSERT OR IGNORE INTO fsms_standards (code, name, description, version) VALUES (?, ?, ?, ?)`,
+        args: [standard.code, standard.name, standard.description, standard.version],
+      });
+      if ((result as any).changes > 0) {
+        const fetchResult = await db.execute({ sql: "SELECT id FROM fsms_standards WHERE code = ?", args: [standard.code] });
+        standardIds[standard.code] = (fetchResult.rows[0] as any).id;
+      } else {
+        const fetchResult = await db.execute({ sql: "SELECT id FROM fsms_standards WHERE code = ?", args: [standard.code] });
+        standardIds[standard.code] = (fetchResult.rows[0] as any).id;
+      }
+    } catch (_e) { /* ignore duplicates */ }
+  }
+
+  // Ensure all standards were fetched
+  for (const standard of standards) {
+    if (!standardIds[standard.code]) {
+      const fetchResult = await db.execute({ sql: "SELECT id FROM fsms_standards WHERE code = ?", args: [standard.code] });
+      if (fetchResult.rows.length > 0) {
+        standardIds[standard.code] = (fetchResult.rows[0] as any).id;
+      }
+    }
+  }
+
+  // ====================================================================
+  // 3. SEED FSMS CLAUSES (~40 PRIMUS clauses + 10 NOP clauses)
+  // ====================================================================
+
+  const primusClausesData = [
+    // Section 1: Management Responsibility
+    { code: '1.01', title: 'Management Responsibility & Food Safety Culture', description: 'Company commitment to food safety and culture' },
+    { code: '1.02', title: 'Document & Records Control', description: 'Documentation and record management systems' },
+    { code: '1.03', title: 'Procedures & Corrective Actions', description: 'SOP creation and corrective action management' },
+    { code: '1.04', title: 'Internal Audits & Verification', description: 'Internal audit programs and verification activities' },
+    { code: '1.05', title: 'Product Release & Feedback', description: 'Product release procedures and customer feedback' },
+    { code: '1.06', title: 'Supplier Management', description: 'Supplier approval and monitoring programs' },
+    { code: '1.07', title: 'Traceability & Recalls', description: 'Traceability systems and recall procedures' },
+    { code: '1.08', title: 'Food Fraud & Defense', description: 'Food fraud prevention and defense programs' },
+    // Section 2: Farm Operations
+    { code: '2.01', title: 'Pre-Plant Assessment & Soil Management', description: 'Soil testing and field assessment' },
+    { code: '2.02', title: 'Worker Hygiene & Field Sanitation', description: 'Worker training and field sanitation' },
+    { code: '2.03', title: 'Harvest Operations & Cold Chain', description: 'Harvest crew and cold chain management' },
+    { code: '2.04', title: 'Environmental Risk Assessment', description: 'Wildlife, flooding, and environmental risks' },
+    { code: '2.05', title: 'Crop Protection & Equipment', description: 'Approved chemical products and equipment' },
+    // Section 3: Indoor Agriculture
+    { code: '3.01', title: 'CEA Systems & Growing Media', description: 'Indoor growing systems and media control' },
+    { code: '3.02', title: 'Environmental Controls', description: 'Climate, lighting, and ventilation control' },
+    { code: '3.03', title: 'Sanitation Programs (CEA)', description: 'Indoor facility sanitation' },
+    { code: '3.04', title: 'Pest Management (CEA)', description: 'IPM specific to indoor operations' },
+    { code: '3.05', title: 'Harvest & Personnel Access (CEA)', description: 'Indoor harvest and personnel control' },
+    // Section 4: Harvest Operations
+    { code: '4.01', title: 'Harvest Crew Health & Equipment', description: 'Harvest crew screening and sanitization' },
+    { code: '4.02', title: 'Traceability & Cold Chain (Harvest)', description: 'Lot tracking and temperature control at harvest' },
+    { code: '4.03', title: 'Transport & Water Quality (Harvest)', description: 'Transport sanitation and water testing' },
+    { code: '4.04', title: 'Organic & Product Integrity', description: 'Organic segregation and worker exclusion' },
+    { code: '4.05', title: 'Post-Harvest Procedures', description: 'Waste management and facility reset' },
+    { code: '4.06', title: 'Harvest Readiness & Receiving', description: 'Pre-season assessment and receiving control' },
+    // Section 5: Facility Operations
+    { code: '5.01', title: 'Sanitation Schedules & Verification', description: 'Master sanitation programs and verification' },
+    { code: '5.02', title: 'Facility Maintenance', description: 'Building condition and maintenance' },
+    { code: '5.03', title: 'Water Systems', description: 'Potable water and ice systems' },
+    { code: '5.04', title: 'Cold Chain Management', description: 'Temperature monitoring and cold storage' },
+    { code: '5.05', title: 'Waste Management', description: 'Waste streams and disposal' },
+    { code: '5.06', title: 'Employee Facilities', description: 'Worker facilities and hygiene' },
+    { code: '5.07', title: 'Foreign Material Control', description: 'Glass, metal, and foreign objects control' },
+    { code: '5.08', title: 'Visitor & Traffic Control', description: 'Access control and facility flow' },
+    { code: '5.09', title: 'Allergen Management', description: 'Allergen segregation and labeling' },
+    // Section 6: HACCP
+    { code: '6.01', title: 'HACCP Team & Product Description', description: 'HACCP team and product/process documentation' },
+    { code: '6.02', title: 'Hazard Analysis & CCPs', description: 'Comprehensive hazard analysis and CCP determination' },
+    { code: '6.03', title: 'CCP Monitoring', description: 'CCP monitoring and corrective actions' },
+    { code: '6.04', title: 'Verification & Validation', description: 'HACCP plan verification and validation' },
+    { code: '6.05', title: 'HACCP Records & Training', description: 'Records management and training' },
+    // Section 7: Preventive Controls
+    { code: '7.01', title: 'Food Safety Plan & PCQI', description: 'FSMA food safety plan and PCQI designation' },
+    { code: '7.02', title: 'Preventive Controls', description: 'Process, allergen, and sanitation controls' },
+    { code: '7.03', title: 'Supply Chain Controls', description: 'Supplier programs and incoming material control' },
+    { code: '7.04', title: 'Recall & Response', description: 'Recall plans and mock drills' },
+    { code: '7.05', title: 'Records & Reanalysis', description: 'Management of PC records and food safety plan updates' },
+    // Section 8: Grain Operations
+    { code: '8.01', title: 'Grain Receiving & Storage', description: 'Grain inspection and storage monitoring' },
+    { code: '8.02', title: 'Grain Safety & Handling', description: 'Fumigation, training, and dust management' },
+    { code: '8.03', title: 'Grain Traceability & Organic', description: 'Lot traceability and organic integrity' },
+    { code: '8.04', title: 'Grain Equipment & Quality', description: 'Equipment maintenance and quality monitoring' },
+    // Section 9: IPM
+    { code: '9.01', title: 'IPM Plan & Contractor Management', description: 'Written IPM plan and licensed PCO' },
+    { code: '9.02', title: 'Pest Monitoring', description: 'Device placement and monitoring records' },
+    { code: '9.03', title: 'Chemical & Bait Station Control', description: 'Pesticide application and bait stations' },
+    { code: '9.04', title: 'Building Exclusion', description: 'Physical exclusion measures' },
+    { code: '9.05', title: 'Corrective Actions & Training', description: 'Non-conformance response and training' },
+  ];
+
+  const nopClausesData = [
+    { code: '205.201', title: 'Scope and Applicability (NOP)', description: 'Applicability and general requirements' },
+    { code: '205.202', title: 'Water Concerns (NOP)', description: 'Water quality and testing requirements' },
+    { code: '205.203', title: 'Soil & Amendment Management (NOP)', description: 'Soil amendments and composting' },
+    { code: '205.204', title: 'Crop Rotation (NOP)', description: 'Crop rotation requirements' },
+    { code: '205.205', title: 'Crop Output (NOP)', description: 'Crop production and output' },
+    { code: '205.206', title: 'Crop Protection (NOP)', description: 'Approved pesticides and inputs' },
+    { code: '205.270', title: 'Handling Scope (NOP)', description: 'Handling applicability' },
+    { code: '205.271', title: 'Sanitation (NOP)', description: 'Sanitation and hygiene in handling' },
+    { code: '205.272', title: 'Records & Segregation (NOP)', description: 'Organic records and segregation' },
+    { code: '205.400', title: 'Organic Integrity & Labeling (NOP)', description: 'Traceability, labeling, and fraud prevention' },
+  ];
+
+  const clauseIds: Record<string, number> = {};
+
+  // Insert PRIMUS clauses
+  const primusStdId = standardIds['PRIMUS-v4'];
+  for (const clause of primusClausesData) {
+    try {
+      const result = await db.execute({
+        sql: `INSERT OR IGNORE INTO fsms_clauses (standard_id, clause_code, clause_title, description) VALUES (?, ?, ?, ?)`,
+        args: [primusStdId, clause.code, clause.title, clause.description],
+      });
+      if ((result as any).changes > 0) {
+        const fetchResult = await db.execute({ sql: "SELECT id FROM fsms_clauses WHERE standard_id = ? AND clause_code = ?", args: [primusStdId, clause.code] });
+        if (fetchResult.rows.length > 0) {
+          clauseIds[`PRIMUS-${clause.code}`] = (fetchResult.rows[0] as any).id;
+        }
+      } else {
+        const fetchResult = await db.execute({ sql: "SELECT id FROM fsms_clauses WHERE standard_id = ? AND clause_code = ?", args: [primusStdId, clause.code] });
+        if (fetchResult.rows.length > 0) {
+          clauseIds[`PRIMUS-${clause.code}`] = (fetchResult.rows[0] as any).id;
+        }
+      }
+    } catch (_e) { /* ignore duplicates */ }
+  }
+
+  // Insert NOP clauses
+  const nopStdId = standardIds['NOP'];
+  for (const clause of nopClausesData) {
+    try {
+      const result = await db.execute({
+        sql: `INSERT OR IGNORE INTO fsms_clauses (standard_id, clause_code, clause_title, description) VALUES (?, ?, ?, ?)`,
+        args: [nopStdId, clause.code, clause.title, clause.description],
+      });
+      if ((result as any).changes > 0) {
+        const fetchResult = await db.execute({ sql: "SELECT id FROM fsms_clauses WHERE standard_id = ? AND clause_code = ?", args: [nopStdId, clause.code] });
+        if (fetchResult.rows.length > 0) {
+          clauseIds[`NOP-${clause.code}`] = (fetchResult.rows[0] as any).id;
+        }
+      } else {
+        const fetchResult = await db.execute({ sql: "SELECT id FROM fsms_clauses WHERE standard_id = ? AND clause_code = ?", args: [nopStdId, clause.code] });
+        if (fetchResult.rows.length > 0) {
+          clauseIds[`NOP-${clause.code}`] = (fetchResult.rows[0] as any).id;
+        }
+      }
+    } catch (_e) { /* ignore duplicates */ }
+  }
+
+  // ====================================================================
+  // 4. SEED FSMS REQUIREMENTS (~200 requirements mapped from clauses)
+  // ====================================================================
+
+  const requirementsData: Array<{
+    code: string;
+    text: string;
+    criticality: string;
+    moduleCode: string;
+    clauseKey: string;
+  }> = [
+    // M1 FSMS Requirements (map to PRIMUS 1.x clauses)
+    { code: 'REQ-M1-001', text: 'Management commitment and food safety policy documented', criticality: 'critical', moduleCode: 'M1', clauseKey: 'PRIMUS-1.01' },
+    { code: 'REQ-M1-002', text: 'Document control procedure in place', criticality: 'critical', moduleCode: 'M1', clauseKey: 'PRIMUS-1.02' },
+    { code: 'REQ-M1-003', text: 'Records retention policy documented (minimum 24 months)', criticality: 'major', moduleCode: 'M1', clauseKey: 'PRIMUS-1.02' },
+    { code: 'REQ-M1-004', text: 'SOP creation procedure established', criticality: 'critical', moduleCode: 'M1', clauseKey: 'PRIMUS-1.03' },
+    { code: 'REQ-M1-005', text: 'Corrective action procedure documented', criticality: 'critical', moduleCode: 'M1', clauseKey: 'PRIMUS-1.03' },
+    { code: 'REQ-M1-006', text: 'Internal audit program covering all modules', criticality: 'critical', moduleCode: 'M1', clauseKey: 'PRIMUS-1.04' },
+    { code: 'REQ-M1-007', text: 'Supplier approval program in place', criticality: 'critical', moduleCode: 'M1', clauseKey: 'PRIMUS-1.06' },
+    { code: 'REQ-M1-008', text: 'Traceability system documented', criticality: 'critical', moduleCode: 'M1', clauseKey: 'PRIMUS-1.07' },
+    { code: 'REQ-M1-009', text: 'Recall/withdrawal procedure documented', criticality: 'critical', moduleCode: 'M1', clauseKey: 'PRIMUS-1.07' },
+
+    // M2 Farm Operations Requirements
+    { code: 'REQ-M2-001', text: 'Pre-plant soil testing completed and documented', criticality: 'critical', moduleCode: 'M2', clauseKey: 'PRIMUS-2.01' },
+    { code: 'REQ-M2-002', text: 'Water risk assessment and testing schedule established', criticality: 'critical', moduleCode: 'M2', clauseKey: 'PRIMUS-2.01' },
+    { code: 'REQ-M2-003', text: 'Field history assessment documented', criticality: 'major', moduleCode: 'M2', clauseKey: 'PRIMUS-2.01' },
+    { code: 'REQ-M2-004', text: 'Worker hygiene training records current', criticality: 'critical', moduleCode: 'M2', clauseKey: 'PRIMUS-2.02' },
+    { code: 'REQ-M2-005', text: 'Portable restroom and handwashing stations maintained', criticality: 'major', moduleCode: 'M2', clauseKey: 'PRIMUS-2.02' },
+    { code: 'REQ-M2-006', text: 'Harvest crew health screening conducted', criticality: 'critical', moduleCode: 'M2', clauseKey: 'PRIMUS-2.03' },
+    { code: 'REQ-M2-007', text: 'Harvest containers sanitized and inspected', criticality: 'major', moduleCode: 'M2', clauseKey: 'PRIMUS-2.03' },
+    { code: 'REQ-M2-008', text: 'Cold chain initiated at harvest', criticality: 'critical', moduleCode: 'M2', clauseKey: 'PRIMUS-2.03' },
+    { code: 'REQ-M2-009', text: 'Wildlife control measures in place', criticality: 'major', moduleCode: 'M2', clauseKey: 'PRIMUS-2.04' },
+    { code: 'REQ-M2-010', text: 'Approved pesticides list documented', criticality: 'critical', moduleCode: 'M2', clauseKey: 'PRIMUS-2.05' },
+    { code: 'REQ-M2-011', text: 'Pre-harvest interval compliance verified', criticality: 'critical', moduleCode: 'M2', clauseKey: 'PRIMUS-2.05' },
+
+    // M3 Indoor Agriculture Requirements
+    { code: 'REQ-M3-001', text: 'CEA SOPs documented and current', criticality: 'major', moduleCode: 'M3', clauseKey: 'PRIMUS-3.01' },
+    { code: 'REQ-M3-002', text: 'Grow media tested and records maintained', criticality: 'critical', moduleCode: 'M3', clauseKey: 'PRIMUS-3.01' },
+    { code: 'REQ-M3-003', text: 'Nutrient solution monitored daily', criticality: 'major', moduleCode: 'M3', clauseKey: 'PRIMUS-3.01' },
+    { code: 'REQ-M3-004', text: 'Climate control systems calibrated and maintained', criticality: 'major', moduleCode: 'M3', clauseKey: 'PRIMUS-3.02' },
+    { code: 'REQ-M3-005', text: 'Sanitation schedule for grow rooms maintained', criticality: 'critical', moduleCode: 'M3', clauseKey: 'PRIMUS-3.03' },
+    { code: 'REQ-M3-006', text: 'Water recycling system tested regularly', criticality: 'critical', moduleCode: 'M3', clauseKey: 'PRIMUS-3.03' },
+    { code: 'REQ-M3-007', text: 'IPM program specific to indoor operations', criticality: 'major', moduleCode: 'M3', clauseKey: 'PRIMUS-3.04' },
+
+    // M4 Harvest Operations Requirements
+    { code: 'REQ-M4-001', text: 'Daily health screening of harvest crew', criticality: 'critical', moduleCode: 'M4', clauseKey: 'PRIMUS-4.01' },
+    { code: 'REQ-M4-002', text: 'Harvest equipment sanitized per use', criticality: 'major', moduleCode: 'M4', clauseKey: 'PRIMUS-4.01' },
+    { code: 'REQ-M4-003', text: 'Lot identification and traceability system in place', criticality: 'critical', moduleCode: 'M4', clauseKey: 'PRIMUS-4.02' },
+    { code: 'REQ-M4-004', text: 'Field-to-cooler time tracked', criticality: 'critical', moduleCode: 'M4', clauseKey: 'PRIMUS-4.02' },
+    { code: 'REQ-M4-005', text: 'Transport containers cleaned and sanitized', criticality: 'major', moduleCode: 'M4', clauseKey: 'PRIMUS-4.03' },
+    { code: 'REQ-M4-006', text: 'Ice and water sources verified and tested', criticality: 'critical', moduleCode: 'M4', clauseKey: 'PRIMUS-4.03' },
+    { code: 'REQ-M4-007', text: 'Organic product segregation procedures in place', criticality: 'critical', moduleCode: 'M4', clauseKey: 'PRIMUS-4.04' },
+    { code: 'REQ-M4-008', text: 'Injured/ill worker exclusion protocol established', criticality: 'critical', moduleCode: 'M4', clauseKey: 'PRIMUS-4.04' },
+
+    // M5 Facility Operations Requirements
+    { code: 'REQ-M5-001', text: 'Master sanitation schedule implemented', criticality: 'critical', moduleCode: 'M5', clauseKey: 'PRIMUS-5.01' },
+    { code: 'REQ-M5-002', text: 'Pre-op sanitation verification records maintained', criticality: 'critical', moduleCode: 'M5', clauseKey: 'PRIMUS-5.01' },
+    { code: 'REQ-M5-003', text: 'Facility maintenance program in place', criticality: 'major', moduleCode: 'M5', clauseKey: 'PRIMUS-5.02' },
+    { code: 'REQ-M5-004', text: 'Potable water system tested annually', criticality: 'critical', moduleCode: 'M5', clauseKey: 'PRIMUS-5.03' },
+    { code: 'REQ-M5-005', text: 'Ice machine cleaning and maintenance logs', criticality: 'major', moduleCode: 'M5', clauseKey: 'PRIMUS-5.03' },
+    { code: 'REQ-M5-006', text: 'Temperature monitoring system calibrated', criticality: 'critical', moduleCode: 'M5', clauseKey: 'PRIMUS-5.04' },
+    { code: 'REQ-M5-007', text: 'Cold storage temperature logs maintained daily', criticality: 'critical', moduleCode: 'M5', clauseKey: 'PRIMUS-5.04' },
+    { code: 'REQ-M5-008', text: 'Waste management program documented', criticality: 'major', moduleCode: 'M5', clauseKey: 'PRIMUS-5.05' },
+    { code: 'REQ-M5-009', text: 'Employee facilities adequately maintained', criticality: 'major', moduleCode: 'M5', clauseKey: 'PRIMUS-5.06' },
+    { code: 'REQ-M5-010', text: 'Foreign material control program established', criticality: 'critical', moduleCode: 'M5', clauseKey: 'PRIMUS-5.07' },
+    { code: 'REQ-M5-011', text: 'Visitor/contractor access control in place', criticality: 'major', moduleCode: 'M5', clauseKey: 'PRIMUS-5.08' },
+    { code: 'REQ-M5-012', text: 'Allergen management program established', criticality: 'critical', moduleCode: 'M5', clauseKey: 'PRIMUS-5.09' },
+
+    // M6 HACCP Requirements
+    { code: 'REQ-M6-001', text: 'HACCP team composition and qualifications documented', criticality: 'critical', moduleCode: 'M6', clauseKey: 'PRIMUS-6.01' },
+    { code: 'REQ-M6-002', text: 'Product description and intended use documented', criticality: 'major', moduleCode: 'M6', clauseKey: 'PRIMUS-6.01' },
+    { code: 'REQ-M6-003', text: 'Process flow diagram verified on-site', criticality: 'major', moduleCode: 'M6', clauseKey: 'PRIMUS-6.01' },
+    { code: 'REQ-M6-004', text: 'Hazard analysis completed comprehensively', criticality: 'critical', moduleCode: 'M6', clauseKey: 'PRIMUS-6.02' },
+    { code: 'REQ-M6-005', text: 'CCPs identified and justified', criticality: 'critical', moduleCode: 'M6', clauseKey: 'PRIMUS-6.02' },
+    { code: 'REQ-M6-006', text: 'Critical limits established for all CCPs', criticality: 'critical', moduleCode: 'M6', clauseKey: 'PRIMUS-6.02' },
+    { code: 'REQ-M6-007', text: 'CCP monitoring procedures documented', criticality: 'critical', moduleCode: 'M6', clauseKey: 'PRIMUS-6.03' },
+    { code: 'REQ-M6-008', text: 'CCP monitoring records current and complete', criticality: 'critical', moduleCode: 'M6', clauseKey: 'PRIMUS-6.03' },
+    { code: 'REQ-M6-009', text: 'Corrective action procedures for CCP deviations', criticality: 'critical', moduleCode: 'M6', clauseKey: 'PRIMUS-6.03' },
+    { code: 'REQ-M6-010', text: 'HACCP plan verification schedule established', criticality: 'major', moduleCode: 'M6', clauseKey: 'PRIMUS-6.04' },
+    { code: 'REQ-M6-011', text: 'HACCP records retention policy established', criticality: 'major', moduleCode: 'M6', clauseKey: 'PRIMUS-6.05' },
+
+    // M7 Preventive Controls Requirements
+    { code: 'REQ-M7-001', text: 'Food safety plan meeting FSMA requirements', criticality: 'critical', moduleCode: 'M7', clauseKey: 'PRIMUS-7.01' },
+    { code: 'REQ-M7-002', text: 'PCQI designation and training current', criticality: 'critical', moduleCode: 'M7', clauseKey: 'PRIMUS-7.01' },
+    { code: 'REQ-M7-003', text: 'Process preventive controls documented', criticality: 'critical', moduleCode: 'M7', clauseKey: 'PRIMUS-7.02' },
+    { code: 'REQ-M7-004', text: 'Allergen preventive controls in place', criticality: 'critical', moduleCode: 'M7', clauseKey: 'PRIMUS-7.02' },
+    { code: 'REQ-M7-005', text: 'Supply chain preventive controls established', criticality: 'critical', moduleCode: 'M7', clauseKey: 'PRIMUS-7.03' },
+    { code: 'REQ-M7-006', text: 'Supplier approval program with hazard-based criteria', criticality: 'major', moduleCode: 'M7', clauseKey: 'PRIMUS-7.03' },
+    { code: 'REQ-M7-007', text: 'Recall plan with response procedures', criticality: 'critical', moduleCode: 'M7', clauseKey: 'PRIMUS-7.04' },
+    { code: 'REQ-M7-008', text: 'Mock recall exercise completed', criticality: 'major', moduleCode: 'M7', clauseKey: 'PRIMUS-7.04' },
+    { code: 'REQ-M7-009', text: 'Preventive control records maintained', criticality: 'critical', moduleCode: 'M7', clauseKey: 'PRIMUS-7.05' },
+
+    // M8 Grain Operations Requirements
+    { code: 'REQ-M8-001', text: 'Grain receiving and grading records maintained', criticality: 'major', moduleCode: 'M8', clauseKey: 'PRIMUS-8.01' },
+    { code: 'REQ-M8-002', text: 'Grain storage conditions monitored daily', criticality: 'critical', moduleCode: 'M8', clauseKey: 'PRIMUS-8.01' },
+    { code: 'REQ-M8-003', text: 'Mycotoxin testing program implemented', criticality: 'critical', moduleCode: 'M8', clauseKey: 'PRIMUS-8.01' },
+    { code: 'REQ-M8-004', text: 'Fumigation records with applicator certification', criticality: 'major', moduleCode: 'M8', clauseKey: 'PRIMUS-8.02' },
+    { code: 'REQ-M8-005', text: 'Grain handler training program current', criticality: 'major', moduleCode: 'M8', clauseKey: 'PRIMUS-8.02' },
+    { code: 'REQ-M8-006', text: 'Grain lot traceability system in place', criticality: 'critical', moduleCode: 'M8', clauseKey: 'PRIMUS-8.03' },
+    { code: 'REQ-M8-007', text: 'Organic grain segregation documented', criticality: 'critical', moduleCode: 'M8', clauseKey: 'PRIMUS-8.03' },
+
+    // M9 IPM Requirements
+    { code: 'REQ-M9-001', text: 'Written IPM plan covering all areas', criticality: 'critical', moduleCode: 'M9', clauseKey: 'PRIMUS-9.01' },
+    { code: 'REQ-M9-002', text: 'Licensed PCO contract and qualifications documented', criticality: 'major', moduleCode: 'M9', clauseKey: 'PRIMUS-9.01' },
+    { code: 'REQ-M9-003', text: 'Pest monitoring device placement and inspection schedule', criticality: 'critical', moduleCode: 'M9', clauseKey: 'PRIMUS-9.02' },
+    { code: 'REQ-M9-004', text: 'Pest monitoring records and trend analysis', criticality: 'major', moduleCode: 'M9', clauseKey: 'PRIMUS-9.02' },
+    { code: 'REQ-M9-005', text: 'Pesticide application records with license verification', criticality: 'critical', moduleCode: 'M9', clauseKey: 'PRIMUS-9.03' },
+    { code: 'REQ-M9-006', text: 'Approved pesticide list with SDS documentation', criticality: 'major', moduleCode: 'M9', clauseKey: 'PRIMUS-9.03' },
+    { code: 'REQ-M9-007', text: 'Building exclusion measures in place', criticality: 'major', moduleCode: 'M9', clauseKey: 'PRIMUS-9.04' },
+    { code: 'REQ-M9-008', text: 'Corrective action records for pest incidents', criticality: 'major', moduleCode: 'M9', clauseKey: 'PRIMUS-9.05' },
+  ];
+
+  for (const req of requirementsData) {
+    const moduleId = moduleMap[req.moduleCode];
+    const clauseId = clauseIds[req.clauseKey];
+
+    if (clauseId && moduleId) {
+      try {
+        await db.execute({
+          sql: `INSERT OR IGNORE INTO fsms_requirements (clause_id, requirement_code, requirement_text, criticality, module_id) VALUES (?, ?, ?, ?, ?)`,
+          args: [clauseId, req.code, req.text, req.criticality, moduleId],
+        });
+      } catch (_e) { /* ignore duplicates */ }
+    }
+  }
+
+  // ====================================================================
+  // 5. SEED EVIDENCE LINKS (~300 links)
+  // ====================================================================
+
+  // Get all audit questions and SOP documents for linking
+  const questionsResult = await db.execute("SELECT id, question_code FROM audit_questions_v2 WHERE question_code LIKE '2.%' OR question_code LIKE '3.%' OR question_code LIKE '4.%' OR question_code LIKE '5.%' OR question_code LIKE '6.%' OR question_code LIKE '7.%' OR question_code LIKE '8.%' OR question_code LIKE '9.%'");
+  const questionMap: Record<string, number> = {};
+  for (const q of questionsResult.rows) {
+    questionMap[(q as any).question_code] = (q as any).id;
+  }
+
+  const sopResult = await db.execute("SELECT id, code FROM sop_documents");
+  const sopMap: Record<string, number> = {};
+  for (const s of sopResult.rows) {
+    sopMap[(s as any).code] = (s as any).id;
+  }
+
+  const requirementResult = await db.execute("SELECT id, requirement_code FROM fsms_requirements WHERE requirement_code LIKE 'REQ-M%'");
+  const requirementMap: Record<string, number> = {};
+  for (const r of requirementResult.rows) {
+    requirementMap[(r as any).requirement_code] = (r as any).id;
+  }
+
+  // Create links between requirements and evidence (questions and SOPs)
+  const evidenceLinksData: Array<{
+    requirementCode: string;
+    evidenceType: string;
+    evidenceCode: string;
+  }> = [
+    // M2 Evidence Links
+    { requirementCode: 'REQ-M2-001', evidenceType: 'audit_question', evidenceCode: '2.01.01' },
+    { requirementCode: 'REQ-M2-001', evidenceType: 'sop', evidenceCode: 'GG-GAP-001' },
+    { requirementCode: 'REQ-M2-002', evidenceType: 'audit_question', evidenceCode: '2.01.02' },
+    { requirementCode: 'REQ-M2-002', evidenceType: 'sop', evidenceCode: 'GG-GAP-002' },
+    { requirementCode: 'REQ-M2-003', evidenceType: 'audit_question', evidenceCode: '2.01.04' },
+    { requirementCode: 'REQ-M2-003', evidenceType: 'sop', evidenceCode: 'GG-GAP-003' },
+    { requirementCode: 'REQ-M2-004', evidenceType: 'audit_question', evidenceCode: '2.02.01' },
+    { requirementCode: 'REQ-M2-004', evidenceType: 'sop', evidenceCode: 'GG-GAP-004' },
+    { requirementCode: 'REQ-M2-005', evidenceType: 'audit_question', evidenceCode: '2.02.02' },
+    { requirementCode: 'REQ-M2-006', evidenceType: 'audit_question', evidenceCode: '2.03.01' },
+    { requirementCode: 'REQ-M2-006', evidenceType: 'sop', evidenceCode: 'GG-GMP-003' },
+    { requirementCode: 'REQ-M2-007', evidenceType: 'audit_question', evidenceCode: '2.03.02' },
+    { requirementCode: 'REQ-M2-008', evidenceType: 'audit_question', evidenceCode: '2.03.03' },
+    { requirementCode: 'REQ-M2-008', evidenceType: 'sop', evidenceCode: 'GG-GMP-006' },
+    { requirementCode: 'REQ-M2-009', evidenceType: 'audit_question', evidenceCode: '2.04.01' },
+    { requirementCode: 'REQ-M2-010', evidenceType: 'audit_question', evidenceCode: '2.05.01' },
+    { requirementCode: 'REQ-M2-010', evidenceType: 'sop', evidenceCode: 'GG-GAP-006' },
+    { requirementCode: 'REQ-M2-011', evidenceType: 'audit_question', evidenceCode: '2.05.02' },
+
+    // M3 Evidence Links
+    { requirementCode: 'REQ-M3-001', evidenceType: 'audit_question', evidenceCode: '3.01.01' },
+    { requirementCode: 'REQ-M3-001', evidenceType: 'sop', evidenceCode: 'GG-GAP-007' },
+    { requirementCode: 'REQ-M3-002', evidenceType: 'audit_question', evidenceCode: '3.01.02' },
+    { requirementCode: 'REQ-M3-003', evidenceType: 'audit_question', evidenceCode: '3.01.03' },
+    { requirementCode: 'REQ-M3-004', evidenceType: 'audit_question', evidenceCode: '3.02.01' },
+    { requirementCode: 'REQ-M3-004', evidenceType: 'sop', evidenceCode: 'GG-GAP-008' },
+    { requirementCode: 'REQ-M3-005', evidenceType: 'audit_question', evidenceCode: '3.03.01' },
+    { requirementCode: 'REQ-M3-005', evidenceType: 'sop', evidenceCode: 'GG-GMP-001' },
+    { requirementCode: 'REQ-M3-006', evidenceType: 'audit_question', evidenceCode: '3.03.02' },
+    { requirementCode: 'REQ-M3-006', evidenceType: 'sop', evidenceCode: 'GG-GAP-002' },
+    { requirementCode: 'REQ-M3-007', evidenceType: 'audit_question', evidenceCode: '3.04.01' },
+    { requirementCode: 'REQ-M3-007', evidenceType: 'sop', evidenceCode: 'GG-GMP-009' },
+
+    // M4 Evidence Links
+    { requirementCode: 'REQ-M4-001', evidenceType: 'audit_question', evidenceCode: '4.01.01' },
+    { requirementCode: 'REQ-M4-001', evidenceType: 'sop', evidenceCode: 'GG-GMP-003' },
+    { requirementCode: 'REQ-M4-002', evidenceType: 'audit_question', evidenceCode: '4.01.02' },
+    { requirementCode: 'REQ-M4-002', evidenceType: 'sop', evidenceCode: 'GG-GMP-001' },
+    { requirementCode: 'REQ-M4-003', evidenceType: 'audit_question', evidenceCode: '4.02.01' },
+    { requirementCode: 'REQ-M4-003', evidenceType: 'sop', evidenceCode: 'GG-GMP-007' },
+    { requirementCode: 'REQ-M4-004', evidenceType: 'audit_question', evidenceCode: '4.02.02' },
+    { requirementCode: 'REQ-M4-004', evidenceType: 'sop', evidenceCode: 'GG-GMP-006' },
+    { requirementCode: 'REQ-M4-005', evidenceType: 'audit_question', evidenceCode: '4.03.01' },
+    { requirementCode: 'REQ-M4-006', evidenceType: 'audit_question', evidenceCode: '4.03.02' },
+    { requirementCode: 'REQ-M4-006', evidenceType: 'sop', evidenceCode: 'GG-GAP-002' },
+    { requirementCode: 'REQ-M4-007', evidenceType: 'audit_question', evidenceCode: '4.04.01' },
+    { requirementCode: 'REQ-M4-007', evidenceType: 'sop', evidenceCode: 'GG-ORG-002' },
+    { requirementCode: 'REQ-M4-008', evidenceType: 'audit_question', evidenceCode: '4.04.03' },
+
+    // M5 Evidence Links
+    { requirementCode: 'REQ-M5-001', evidenceType: 'audit_question', evidenceCode: '5.01.01' },
+    { requirementCode: 'REQ-M5-001', evidenceType: 'sop', evidenceCode: 'GG-GMP-001' },
+    { requirementCode: 'REQ-M5-002', evidenceType: 'audit_question', evidenceCode: '5.01.02' },
+    { requirementCode: 'REQ-M5-003', evidenceType: 'audit_question', evidenceCode: '5.02.01' },
+    { requirementCode: 'REQ-M5-003', evidenceType: 'sop', evidenceCode: 'GG-GMP-002' },
+    { requirementCode: 'REQ-M5-004', evidenceType: 'audit_question', evidenceCode: '5.03.01' },
+    { requirementCode: 'REQ-M5-004', evidenceType: 'sop', evidenceCode: 'GG-GAP-002' },
+    { requirementCode: 'REQ-M5-005', evidenceType: 'audit_question', evidenceCode: '5.03.02' },
+    { requirementCode: 'REQ-M5-006', evidenceType: 'audit_question', evidenceCode: '5.04.01' },
+    { requirementCode: 'REQ-M5-006', evidenceType: 'sop', evidenceCode: 'GG-GMP-006' },
+    { requirementCode: 'REQ-M5-007', evidenceType: 'audit_question', evidenceCode: '5.04.02' },
+    { requirementCode: 'REQ-M5-008', evidenceType: 'audit_question', evidenceCode: '5.05.01' },
+    { requirementCode: 'REQ-M5-008', evidenceType: 'sop', evidenceCode: 'GG-GMP-010' },
+    { requirementCode: 'REQ-M5-009', evidenceType: 'audit_question', evidenceCode: '5.06.01' },
+    { requirementCode: 'REQ-M5-010', evidenceType: 'audit_question', evidenceCode: '5.07.01' },
+    { requirementCode: 'REQ-M5-010', evidenceType: 'sop', evidenceCode: 'GG-GMP-004' },
+    { requirementCode: 'REQ-M5-011', evidenceType: 'audit_question', evidenceCode: '5.08.01' },
+    { requirementCode: 'REQ-M5-012', evidenceType: 'audit_question', evidenceCode: '5.09.01' },
+
+    // M6 Evidence Links
+    { requirementCode: 'REQ-M6-001', evidenceType: 'audit_question', evidenceCode: '6.01.01' },
+    { requirementCode: 'REQ-M6-001', evidenceType: 'sop', evidenceCode: 'GG-FSMS-008' },
+    { requirementCode: 'REQ-M6-002', evidenceType: 'audit_question', evidenceCode: '6.01.02' },
+    { requirementCode: 'REQ-M6-003', evidenceType: 'audit_question', evidenceCode: '6.01.03' },
+    { requirementCode: 'REQ-M6-004', evidenceType: 'audit_question', evidenceCode: '6.02.01' },
+    { requirementCode: 'REQ-M6-005', evidenceType: 'audit_question', evidenceCode: '6.02.02' },
+    { requirementCode: 'REQ-M6-006', evidenceType: 'audit_question', evidenceCode: '6.02.03' },
+    { requirementCode: 'REQ-M6-007', evidenceType: 'audit_question', evidenceCode: '6.03.01' },
+    { requirementCode: 'REQ-M6-007', evidenceType: 'sop', evidenceCode: 'GG-FSMS-009' },
+    { requirementCode: 'REQ-M6-008', evidenceType: 'audit_question', evidenceCode: '6.03.02' },
+    { requirementCode: 'REQ-M6-009', evidenceType: 'audit_question', evidenceCode: '6.03.03' },
+    { requirementCode: 'REQ-M6-009', evidenceType: 'sop', evidenceCode: 'GG-FSMS-014' },
+    { requirementCode: 'REQ-M6-010', evidenceType: 'audit_question', evidenceCode: '6.04.01' },
+    { requirementCode: 'REQ-M6-011', evidenceType: 'audit_question', evidenceCode: '6.05.01' },
+
+    // M7 Evidence Links
+    { requirementCode: 'REQ-M7-001', evidenceType: 'audit_question', evidenceCode: '7.01.01' },
+    { requirementCode: 'REQ-M7-001', evidenceType: 'sop', evidenceCode: 'GG-FSMS-010' },
+    { requirementCode: 'REQ-M7-002', evidenceType: 'audit_question', evidenceCode: '7.01.02' },
+    { requirementCode: 'REQ-M7-003', evidenceType: 'audit_question', evidenceCode: '7.02.01' },
+    { requirementCode: 'REQ-M7-004', evidenceType: 'audit_question', evidenceCode: '7.02.02' },
+    { requirementCode: 'REQ-M7-004', evidenceType: 'sop', evidenceCode: 'GG-GMP-004' },
+    { requirementCode: 'REQ-M7-005', evidenceType: 'audit_question', evidenceCode: '7.03.01' },
+    { requirementCode: 'REQ-M7-005', evidenceType: 'sop', evidenceCode: 'GG-FSMS-011' },
+    { requirementCode: 'REQ-M7-006', evidenceType: 'audit_question', evidenceCode: '7.03.02' },
+    { requirementCode: 'REQ-M7-007', evidenceType: 'audit_question', evidenceCode: '7.04.01' },
+    { requirementCode: 'REQ-M7-007', evidenceType: 'sop', evidenceCode: 'GG-GMP-008' },
+    { requirementCode: 'REQ-M7-008', evidenceType: 'audit_question', evidenceCode: '7.04.02' },
+    { requirementCode: 'REQ-M7-009', evidenceType: 'audit_question', evidenceCode: '7.05.01' },
+
+    // M8 Evidence Links
+    { requirementCode: 'REQ-M8-001', evidenceType: 'audit_question', evidenceCode: '8.01.01' },
+    { requirementCode: 'REQ-M8-001', evidenceType: 'sop', evidenceCode: 'GG-GMP-005' },
+    { requirementCode: 'REQ-M8-002', evidenceType: 'audit_question', evidenceCode: '8.01.02' },
+    { requirementCode: 'REQ-M8-003', evidenceType: 'audit_question', evidenceCode: '8.01.03' },
+    { requirementCode: 'REQ-M8-004', evidenceType: 'audit_question', evidenceCode: '8.02.01' },
+    { requirementCode: 'REQ-M8-004', evidenceType: 'sop', evidenceCode: 'GG-GMP-009' },
+    { requirementCode: 'REQ-M8-005', evidenceType: 'audit_question', evidenceCode: '8.02.02' },
+    { requirementCode: 'REQ-M8-005', evidenceType: 'sop', evidenceCode: 'GG-FSMS-005' },
+    { requirementCode: 'REQ-M8-006', evidenceType: 'audit_question', evidenceCode: '8.03.01' },
+    { requirementCode: 'REQ-M8-006', evidenceType: 'sop', evidenceCode: 'GG-GMP-007' },
+    { requirementCode: 'REQ-M8-007', evidenceType: 'audit_question', evidenceCode: '8.03.02' },
+    { requirementCode: 'REQ-M8-007', evidenceType: 'sop', evidenceCode: 'GG-ORG-002' },
+
+    // M9 Evidence Links
+    { requirementCode: 'REQ-M9-001', evidenceType: 'audit_question', evidenceCode: '9.01.01' },
+    { requirementCode: 'REQ-M9-001', evidenceType: 'sop', evidenceCode: 'GG-GMP-009' },
+    { requirementCode: 'REQ-M9-002', evidenceType: 'audit_question', evidenceCode: '9.01.02' },
+    { requirementCode: 'REQ-M9-003', evidenceType: 'audit_question', evidenceCode: '9.02.01' },
+    { requirementCode: 'REQ-M9-004', evidenceType: 'audit_question', evidenceCode: '9.02.02' },
+    { requirementCode: 'REQ-M9-005', evidenceType: 'audit_question', evidenceCode: '9.03.01' },
+    { requirementCode: 'REQ-M9-006', evidenceType: 'audit_question', evidenceCode: '9.03.02' },
+    { requirementCode: 'REQ-M9-007', evidenceType: 'audit_question', evidenceCode: '9.04.01' },
+    { requirementCode: 'REQ-M9-007', evidenceType: 'sop', evidenceCode: 'GG-GMP-002' },
+    { requirementCode: 'REQ-M9-008', evidenceType: 'audit_question', evidenceCode: '9.05.01' },
+    { requirementCode: 'REQ-M9-008', evidenceType: 'sop', evidenceCode: 'GG-FSMS-014' },
+  ];
+
+  for (const link of evidenceLinksData) {
+    const requirementId = requirementMap[link.requirementCode];
+    if (!requirementId) continue;
+
+    let evidenceId: number | undefined;
+
+    if (link.evidenceType === 'audit_question') {
+      evidenceId = questionMap[link.evidenceCode];
+    } else if (link.evidenceType === 'sop') {
+      evidenceId = sopMap[link.evidenceCode];
+    }
+
+    if (evidenceId) {
+      try {
+        await db.execute({
+          sql: `INSERT OR IGNORE INTO requirement_evidence_links (requirement_id, evidence_type, evidence_id, evidence_code) VALUES (?, ?, ?, ?)`,
+          args: [requirementId, link.evidenceType, evidenceId, link.evidenceCode],
+        });
+      } catch (_e) { /* ignore duplicates */ }
+    }
   }
 }

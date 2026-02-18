@@ -8,7 +8,7 @@ import {
   ArrowLeft,
   Loader,
 } from 'lucide-react';
-import { gapsAPI } from '@/api';
+import { gapsAPI, complianceAPI } from '@/api';
 
 interface Facility {
   facility_id: string;
@@ -224,6 +224,103 @@ function SummaryView({
   );
 }
 
+// Requirements Gap Tab Component
+function RequirementsGapTab({ facilityId }: { facilityId: string }) {
+  const [scoreData, setScoreData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await complianceAPI.getScore(Number(facilityId));
+        setScoreData(res.data);
+      } catch (err) {
+        console.error('Failed to load compliance score:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [facilityId]);
+
+  if (loading) return <LoadingSpinner />;
+  if (!scoreData) return <div className="p-6 text-center text-gray-500">Unable to load compliance data.</div>;
+
+  const modules = scoreData.module_scores || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Overall Gap Score */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Overall Gap Score</h3>
+          <div className="text-3xl font-bold" style={{ color: scoreData.overall_score >= 80 ? '#22c55e' : scoreData.overall_score >= 60 ? '#eab308' : '#ef4444' }}>
+            {Math.round(scoreData.overall_score)}%
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-blue-50 rounded-lg p-4 text-center">
+            <div className="text-2xl font-bold text-blue-700">{Math.round(scoreData.sop_readiness_pct || 0)}%</div>
+            <div className="text-xs text-gray-600 mt-1">SOP Readiness</div>
+          </div>
+          <div className="bg-purple-50 rounded-lg p-4 text-center">
+            <div className="text-2xl font-bold text-purple-700">{Math.round(scoreData.checklist_submissions_pct || 0)}%</div>
+            <div className="text-xs text-gray-600 mt-1">Checklist Completion</div>
+          </div>
+          <div className="bg-teal-50 rounded-lg p-4 text-center">
+            <div className="text-2xl font-bold text-teal-700">{Math.round(scoreData.audit_coverage_pct || 0)}%</div>
+            <div className="text-xs text-gray-600 mt-1">Audit Coverage</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Per-Module Breakdown */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 border-b bg-green-50">
+          <h3 className="text-lg font-semibold text-gray-900">Module Compliance Breakdown</h3>
+        </div>
+        <table className="w-full">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Module</th>
+              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Score</th>
+              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Requirements</th>
+              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {modules.map((m: any) => (
+              <tr key={m.module_code} className="hover:bg-gray-50">
+                <td className="px-6 py-4">
+                  <span className="inline-block bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded mr-2">{m.module_code}</span>
+                  <span className="text-sm text-gray-900">{m.module_name}</span>
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-24 bg-gray-200 rounded-full h-2">
+                      <div className="h-2 rounded-full" style={{ width: `${Math.min(m.score, 100)}%`, backgroundColor: m.score >= 80 ? '#22c55e' : m.score >= 60 ? '#eab308' : '#ef4444' }} />
+                    </div>
+                    <span className="text-sm font-medium text-gray-700">{Math.round(m.score)}%</span>
+                  </div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-600">{m.requirements_met}/{m.requirements_total}</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded text-xs font-bold ${m.status === 'PASS' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {m.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {modules.length === 0 && (
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-500">No module data available. Run an audit simulation first.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // Facility Detail View Component
 function FacilityDetailView({
   facility,
@@ -243,6 +340,7 @@ function FacilityDetailView({
   onTakeSnapshot: () => void;
 }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [activeTab, setActiveTab] = useState<'sop_status' | 'requirements_gap'>('sop_status');
 
   const filteredSOPs = sops.filter((sop) => {
     if (statusFilter === 'all') return true;
@@ -285,6 +383,26 @@ function FacilityDetailView({
         </div>
       )}
 
+      {/* Tab Toggle */}
+      <div className="flex gap-4 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('sop_status')}
+          className={`px-4 py-2 font-medium transition ${activeTab === 'sop_status' ? 'text-green-800 border-b-2 border-green-800' : 'text-gray-600 hover:text-gray-900'}`}
+        >
+          SOP Status
+        </button>
+        <button
+          onClick={() => setActiveTab('requirements_gap')}
+          className={`px-4 py-2 font-medium transition ${activeTab === 'requirements_gap' ? 'text-green-800 border-b-2 border-green-800' : 'text-gray-600 hover:text-gray-900'}`}
+        >
+          Requirements Gap
+        </button>
+      </div>
+
+      {activeTab === 'requirements_gap' ? (
+        <RequirementsGapTab facilityId={facility.id} />
+      ) : (
+      <>
       {/* Filter and Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-white rounded-lg shadow-sm p-4 border border-gray-200">
         <div className="flex gap-2 flex-wrap">
@@ -431,6 +549,8 @@ function FacilityDetailView({
             ))}
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
