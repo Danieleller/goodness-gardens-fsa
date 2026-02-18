@@ -2558,7 +2558,7 @@ interface ComplianceScoreResult {
 async function calculateComplianceScore(db: any, facilityId: number, simulationId?: number): Promise<ComplianceScoreResult> {
   // Get applicable modules for facility
   const modulesResult = await db.execute({
-    sql: `SELECT DISTINCT am.id, am.code, am.name, am.max_points
+    sql: `SELECT DISTINCT am.id, am.code, am.name, am.total_points
           FROM facility_modules fm
           JOIN audit_modules am ON fm.module_id = am.id
           WHERE fm.facility_id = ?`,
@@ -2576,7 +2576,7 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
   for (const module of modules) {
     // Get requirements for this module
     const reqResult = await db.execute({
-      sql: `SELECT id, code, name, criticality FROM fsms_requirements WHERE module_id = ?`,
+      sql: `SELECT id, requirement_code, requirement_text, criticality FROM fsms_requirements WHERE module_id = ?`,
       args: [module.id],
     });
 
@@ -2599,7 +2599,7 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
 
       // Get evidence links for this requirement
       const evidenceResult = await db.execute({
-        sql: `SELECT evidence_type, linked_id FROM requirement_evidence_links WHERE requirement_id = ?`,
+        sql: `SELECT evidence_type, evidence_id, evidence_code FROM requirement_evidence_links WHERE requirement_id = ?`,
         args: [req.id],
       });
 
@@ -2610,9 +2610,10 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
         if (ev.evidence_type === 'audit_question' && simulationId) {
           // Check audit response score
           const scoreResult = await db.execute({
-            sql: `SELECT score, max_points FROM audit_responses
-                  WHERE question_id = ? AND simulation_id = ?`,
-            args: [ev.linked_id, simulationId],
+            sql: `SELECT ar.score, aq.points as max_points FROM audit_responses ar
+                  JOIN audit_questions_v2 aq ON ar.question_id = aq.id
+                  WHERE ar.question_id = ? AND ar.simulation_id = ?`,
+            args: [ev.evidence_id, simulationId],
           });
           if (scoreResult.rows && scoreResult.rows.length > 0) {
             const row = (scoreResult.rows[0] as any);
@@ -2626,7 +2627,7 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
           // Check SOP status
           const sopResult = await db.execute({
             sql: `SELECT status FROM sop_facility_status WHERE sop_id = ? AND facility_id = ?`,
-            args: [ev.linked_id, facilityId],
+            args: [ev.evidence_id, facilityId],
           });
           if (sopResult.rows && sopResult.rows.length > 0) {
             const row = (sopResult.rows[0] as any);
@@ -2638,11 +2639,11 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
         } else if (ev.evidence_type === 'checklist') {
           // Check recent checklist submission (within 90 days)
           const checklistResult = await db.execute({
-            sql: `SELECT submitted_at FROM checklist_submissions
-                  WHERE checklist_id = ? AND facility_id = ?
-                  AND submitted_at >= date('now', '-90 days')
-                  ORDER BY submitted_at DESC LIMIT 1`,
-            args: [ev.linked_id, facilityId],
+            sql: `SELECT submission_date FROM checklist_submissions
+                  WHERE template_id = ? AND facility_id = ?
+                  AND submission_date >= date('now', '-90 days')
+                  ORDER BY submission_date DESC LIMIT 1`,
+            args: [ev.evidence_id, facilityId],
           });
           if (checklistResult.rows && checklistResult.rows.length > 0) {
             evidenceSatisfied = true;
@@ -2697,16 +2698,13 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
   const sopReadinessPct = sopData.total > 0 ? (sopData.current / sopData.total) * 100 : 0;
 
   const checklistResult = await db.execute({
-    sql: `SELECT COUNT(DISTINCT ct.id) as total FROM checklist_templates ct
-          LEFT JOIN checklist_submissions cs ON ct.id = cs.checklist_id AND cs.facility_id = ?
-          AND cs.submitted_at >= date('now', '-90 days')
-          WHERE ct.facility_type = (SELECT facility_type FROM facilities WHERE id = ?)`,
-    args: [facilityId, facilityId],
+    sql: `SELECT COUNT(DISTINCT ct.id) as total FROM checklist_templates ct`,
+    args: [],
   });
   const checklistCount = ((checklistResult.rows[0] as any)?.total || 0);
   const checklistSubmissionResult = await db.execute({
-    sql: `SELECT COUNT(*) as submitted FROM checklist_submissions
-          WHERE facility_id = ? AND submitted_at >= date('now', '-90 days')`,
+    sql: `SELECT COUNT(DISTINCT template_id) as submitted FROM checklist_submissions
+          WHERE facility_id = ? AND submission_date >= date('now', '-90 days')`,
     args: [facilityId],
   });
   const checklistSubmitted = ((checklistSubmissionResult.rows[0] as any)?.submitted || 0);
@@ -2744,9 +2742,9 @@ async function handleCompliance(req: VercelRequest, res: VercelResponse, db: any
       // Save assessment if requested
       if (req.query?.save_assessment === 'true') {
         await db.execute({
-          sql: `INSERT INTO compliance_assessments (facility_id, overall_score, overall_grade, assessment_data)
-                VALUES (?, ?, ?, ?)`,
-          args: [facilityId, result.overall_score, result.overall_grade, JSON.stringify(result)],
+          sql: `INSERT INTO compliance_assessments (facility_id, assessment_date, overall_score, overall_grade, module_scores, module_statuses, sop_readiness_pct, checklist_submissions_pct, audit_coverage_pct, critical_findings_count, major_findings_count, minor_findings_count, assessed_by)
+                VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [facilityId, result.overall_score, result.overall_grade, JSON.stringify(result.module_scores), JSON.stringify(result.module_scores.map((m: any) => m.status)), result.sop_readiness_pct, result.checklist_submissions_pct, result.audit_coverage_pct, result.critical_findings, result.major_findings, result.minor_findings, userId],
         });
       }
 
@@ -2784,7 +2782,7 @@ async function handleCompliance(req: VercelRequest, res: VercelResponse, db: any
       if (!facilityId) return res.status(400).json({ error: 'facility_id required' });
 
       const reqResult = await db.execute({
-        sql: `SELECT fr.id, fr.code, fr.name, fr.criticality, am.code as module_code
+        sql: `SELECT fr.id, fr.requirement_code, fr.requirement_text, fr.criticality, am.code as module_code
               FROM fsms_requirements fr
               JOIN audit_modules am ON fr.module_id = am.id
               WHERE am.code = ?`,
@@ -2796,7 +2794,7 @@ async function handleCompliance(req: VercelRequest, res: VercelResponse, db: any
 
       for (const req of requirements) {
         const evidenceResult = await db.execute({
-          sql: `SELECT evidence_type, linked_id FROM requirement_evidence_links WHERE requirement_id = ?`,
+          sql: `SELECT evidence_type, evidence_id, evidence_code FROM requirement_evidence_links WHERE requirement_id = ?`,
           args: [req.id],
         });
         enriched.push({
@@ -2814,10 +2812,10 @@ async function handleCompliance(req: VercelRequest, res: VercelResponse, db: any
       if (!facilityId) return res.status(400).json({ error: 'facility_id required' });
 
       const historyResult = await db.execute({
-        sql: `SELECT id, facility_id, overall_score, overall_grade, assessment_data, created_at
+        sql: `SELECT id, facility_id, assessment_date, overall_score, overall_grade, module_scores, sop_readiness_pct, checklist_submissions_pct, audit_coverage_pct, created_at
               FROM compliance_assessments
               WHERE facility_id = ?
-              ORDER BY created_at DESC
+              ORDER BY assessment_date DESC
               LIMIT 20`,
         args: [facilityId],
       });
