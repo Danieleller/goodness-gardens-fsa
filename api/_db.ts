@@ -781,7 +781,7 @@ export async function initDb() {
     'CREATE INDEX IF NOT EXISTS idx_sup_active ON suppliers(is_active)',
     // search_index
     'CREATE INDEX IF NOT EXISTS idx_search_type ON search_index(entity_type)',
-    'CREATE INDEX IF NOT EXISTS idx_search_text ON search_index(search_text)',
+    'CREATE INDEX IF NOT EXISTS idx_search_tokens ON search_index(tokens)',
     // system_audit_log
     'CREATE INDEX IF NOT EXISTS idx_sal_user ON system_audit_log(user_id)',
     'CREATE INDEX IF NOT EXISTS idx_sal_created ON system_audit_log(created_at)',
