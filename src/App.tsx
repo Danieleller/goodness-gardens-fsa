@@ -23,6 +23,7 @@ import { SupplierPage } from '@/pages/SupplierPage';
 import { SupplyMasterPage } from '@/pages/SupplyMasterPage';
 import { AuditChecklistPage } from '@/pages/AuditChecklistPage';
 import { ComplianceDashboardPage } from '@/pages/ComplianceDashboardPage';
+import { ComplianceReportingPage } from '@/pages/ComplianceReportingPage';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
@@ -161,6 +162,14 @@ export default function App() {
           element={
             <RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}>
               <ComplianceDashboardPage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/compliance-reporting"
+          element={
+            <RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}>
+              <ComplianceReportingPage />
             </RoleProtectedRoute>
           }
         />

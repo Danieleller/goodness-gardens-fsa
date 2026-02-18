@@ -588,6 +588,74 @@ export async function initDb() {
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (facility_id) REFERENCES facilities(id),
       FOREIGN KEY (assessed_by) REFERENCES users(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS compliance_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_code TEXT UNIQUE NOT NULL,
+      rule_name TEXT NOT NULL,
+      description TEXT,
+      rule_type TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      condition_json TEXT NOT NULL,
+      severity TEXT DEFAULT 'major',
+      module_code TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS compliance_rule_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_id INTEGER NOT NULL,
+      facility_id INTEGER NOT NULL,
+      assessment_id INTEGER,
+      status TEXT NOT NULL,
+      details TEXT,
+      evaluated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (rule_id) REFERENCES compliance_rules(id),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id),
+      FOREIGN KEY (assessment_id) REFERENCES compliance_assessments(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS compliance_monitoring_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      facility_id INTEGER NOT NULL,
+      frequency TEXT DEFAULT 'weekly',
+      last_run TEXT,
+      next_run TEXT,
+      is_active INTEGER DEFAULT 1,
+      notify_on_fail INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS compliance_trends (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      facility_id INTEGER NOT NULL,
+      period_type TEXT NOT NULL,
+      period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL,
+      overall_score REAL,
+      overall_grade TEXT,
+      module_scores TEXT,
+      sop_readiness_pct REAL,
+      checklist_pct REAL,
+      audit_pct REAL,
+      critical_count INTEGER DEFAULT 0,
+      major_count INTEGER DEFAULT 0,
+      minor_count INTEGER DEFAULT 0,
+      rules_passed INTEGER DEFAULT 0,
+      rules_failed INTEGER DEFAULT 0,
+      rules_total INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS risk_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      facility_id INTEGER NOT NULL,
+      module_code TEXT,
+      risk_level TEXT NOT NULL,
+      risk_score REAL NOT NULL,
+      contributing_factors TEXT,
+      recommendations TEXT,
+      calculated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id)
     )`
   ];
 
@@ -853,6 +921,8 @@ async function seedDb() {
     await seedPhase1(db);
     // Run Phase 3 seeds (M2-M9 questions, FSMS standards, requirements, evidence links)
     await seedPhase3(db);
+    // Run Phase 4 seeds (compliance rules)
+    await seedPhase4(db);
     seedData = true;
     return;
   }
@@ -1081,6 +1151,7 @@ async function seedDb() {
   // ====================================================================
   await seedPhase1(db);
   await seedPhase3(db);
+  await seedPhase4(db);
 
   seedData = true;
 }
@@ -1866,5 +1937,43 @@ async function seedPhase3(db: ReturnType<typeof createClient>) {
         });
       } catch (_e) { /* ignore duplicates */ }
     }
+  }
+}
+
+async function seedPhase4(db: ReturnType<typeof createClient>) {
+  // ====================================================================
+  // PHASE 4: Seed default compliance rules
+  // ====================================================================
+
+  // Check if rules already exist
+  const existingRulesCheck = await db.execute({
+    sql: 'SELECT COUNT(*) as cnt FROM compliance_rules',
+    args: [],
+  });
+  if ((existingRulesCheck.rows[0] as any).cnt > 0) {
+    return; // Already seeded
+  }
+
+  const defaultRules = [
+    // Evidence check rules
+    { code: 'RULE-SOP-001', name: 'SOP Currency Check', desc: 'All SOPs must be in current status', type: 'evidence_check', entity: 'sop', condition: '{"field":"status","operator":"equals","value":"current"}', severity: 'major', module: null },
+    { code: 'RULE-SOP-002', name: 'SOP Review Overdue', desc: 'SOPs not reviewed in 365 days', type: 'expiration', entity: 'sop', condition: '{"field":"last_reviewed","operator":"older_than_days","value":365}', severity: 'critical', module: null },
+    { code: 'RULE-CHK-001', name: 'Checklist Completion Frequency', desc: 'Checklists must be completed within required frequency', type: 'frequency', entity: 'checklist', condition: '{"field":"submission_date","operator":"within_days","value":90}', severity: 'major', module: null },
+    { code: 'RULE-AUD-001', name: 'Audit Score Threshold', desc: 'Module audit scores must be >= 70%', type: 'threshold', entity: 'audit_response', condition: '{"field":"score_pct","operator":"gte","value":70}', severity: 'critical', module: null },
+    { code: 'RULE-AUD-002', name: 'Auto-Fail Question Check', desc: 'No auto-fail questions should score 0', type: 'evidence_check', entity: 'audit_response', condition: '{"field":"is_auto_fail","operator":"equals","value":1,"score_must_be":"gt_zero"}', severity: 'critical', module: null },
+    { code: 'RULE-CAPA-001', name: 'CAPA Timeliness', desc: 'Open CAPAs must not be overdue', type: 'expiration', entity: 'capa', condition: '{"field":"target_completion_date","operator":"not_past_due"}', severity: 'major', module: null },
+    { code: 'RULE-CAPA-002', name: 'Critical CAPA Resolution', desc: 'Critical CAPAs resolved within 7 days', type: 'expiration', entity: 'capa', condition: '{"field":"target_completion_date","operator":"within_days","value":7,"filter":"severity=critical"}', severity: 'critical', module: null },
+    { code: 'RULE-CERT-001', name: 'Supplier Certification Validity', desc: 'Supplier certifications must be current', type: 'expiration', entity: 'certification', condition: '{"field":"expiry_date","operator":"not_expired"}', severity: 'major', module: null },
+    { code: 'RULE-M1-001', name: 'M1 Food Safety Plan', desc: 'Food Safety Plan SOP must exist and be current', type: 'evidence_check', entity: 'sop', condition: '{"field":"status","operator":"equals","value":"current","sop_code":"SOP-FSP"}', severity: 'critical', module: 'M1' },
+    { code: 'RULE-M5-001', name: 'M5 Sanitation Checklist', desc: 'Sanitation checklists must be submitted weekly', type: 'frequency', entity: 'checklist', condition: '{"field":"submission_date","operator":"within_days","value":7,"template_category":"sanitation"}', severity: 'major', module: 'M5' },
+    { code: 'RULE-M6-001', name: 'M6 HACCP Monitoring', desc: 'HACCP monitoring records must be current', type: 'frequency', entity: 'checklist', condition: '{"field":"submission_date","operator":"within_days","value":1,"template_category":"haccp"}', severity: 'critical', module: 'M6' },
+    { code: 'RULE-WATER-001', name: 'Water Testing Frequency', desc: 'Water testing records must be within 30 days', type: 'frequency', entity: 'checklist', condition: '{"field":"submission_date","operator":"within_days","value":30,"template_category":"water_testing"}', severity: 'major', module: 'M2' },
+  ];
+
+  for (const rule of defaultRules) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO compliance_rules (rule_code, rule_name, description, rule_type, entity_type, condition_json, severity, module_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [rule.code, rule.name, rule.desc, rule.type, rule.entity, rule.condition, rule.severity, rule.module],
+    });
   }
 }

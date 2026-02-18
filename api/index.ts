@@ -2555,6 +2555,286 @@ interface ComplianceScoreResult {
   minor_findings: number;
 }
 
+// ============================================================================
+// COMPLIANCE RULES ENGINE
+// ============================================================================
+
+async function evaluateComplianceRules(db: any, facilityId: number, assessmentId?: number): Promise<{
+  results: any[];
+  summary: { passed: number; failed: number; warnings: number; total: number };
+  risk_level: string;
+  risk_score: number;
+}> {
+  // Get all active rules
+  const rulesResult = await db.execute({
+    sql: 'SELECT * FROM compliance_rules WHERE is_active = 1',
+    args: [],
+  });
+  const rules = (rulesResult.rows as any[]) || [];
+
+  const results: any[] = [];
+  let passed = 0, failed = 0, warnings = 0;
+
+  for (const rule of rules) {
+    const condition = JSON.parse(rule.condition_json || '{}');
+    let status = 'not_applicable';
+    let details: any = {};
+
+    try {
+      switch (rule.rule_type) {
+        case 'evidence_check': {
+          if (rule.entity_type === 'sop') {
+            const sopQuery = condition.sop_code
+              ? `SELECT sd.id, sd.sop_code, sfs.status FROM sop_documents sd LEFT JOIN sop_facility_status sfs ON sd.id = sfs.sop_id AND sfs.facility_id = ? WHERE sd.sop_code = ?`
+              : `SELECT sd.id, sd.sop_code, sfs.status FROM sop_documents sd LEFT JOIN sop_facility_status sfs ON sd.id = sfs.sop_id AND sfs.facility_id = ?`;
+            const sopArgs = condition.sop_code ? [facilityId, condition.sop_code] : [facilityId];
+            const sopResult = await db.execute({ sql: sopQuery, args: sopArgs });
+            const sops = (sopResult.rows as any[]) || [];
+            const nonCurrent = sops.filter((s: any) => s.status !== 'current');
+            status = nonCurrent.length === 0 && sops.length > 0 ? 'pass' : sops.length === 0 ? 'not_applicable' : 'fail';
+            details = { total: sops.length, non_current: nonCurrent.length, items: nonCurrent.slice(0, 5).map((s: any) => s.sop_code) };
+          } else if (rule.entity_type === 'audit_response') {
+            if (condition.is_auto_fail) {
+              // Check for auto-fail questions with score 0
+              const afResult = await db.execute({
+                sql: `SELECT ar.score, aq.question_code, aq.question_text
+                      FROM audit_responses ar
+                      JOIN audit_questions_v2 aq ON ar.question_id = aq.id
+                      JOIN audit_simulations asim ON ar.simulation_id = asim.id
+                      WHERE asim.facility_id = ? AND aq.is_auto_fail = 1 AND ar.score = 0
+                      ORDER BY ar.id DESC LIMIT 20`,
+                args: [facilityId],
+              });
+              const failures = (afResult.rows as any[]) || [];
+              status = failures.length === 0 ? 'pass' : 'fail';
+              details = { auto_fail_zeros: failures.length, items: failures.slice(0, 5).map((f: any) => f.question_code) };
+            }
+          }
+          break;
+        }
+        case 'threshold': {
+          if (rule.entity_type === 'audit_response') {
+            // Check latest simulation scores per module
+            const scoreResult = await db.execute({
+              sql: `SELECT am.code as module_code, am.name as module_name,
+                    ROUND(SUM(ar.score) * 100.0 / NULLIF(SUM(aq.points), 0), 2) as score_pct
+                    FROM audit_simulations asim
+                    JOIN audit_responses ar ON asim.id = ar.simulation_id
+                    JOIN audit_questions_v2 aq ON ar.question_id = aq.id
+                    JOIN audit_modules am ON aq.module_id = am.id
+                    WHERE asim.facility_id = ? AND asim.id = (SELECT MAX(id) FROM audit_simulations WHERE facility_id = ?)
+                    GROUP BY am.id`,
+              args: [facilityId, facilityId],
+            });
+            const modules = (scoreResult.rows as any[]) || [];
+            const failing = modules.filter((m: any) => (m.score_pct || 0) < (condition.value || 70));
+            status = failing.length === 0 && modules.length > 0 ? 'pass' : modules.length === 0 ? 'not_applicable' : 'fail';
+            details = { modules_checked: modules.length, modules_failing: failing.length, failing_modules: failing.map((m: any) => ({ code: m.module_code, score: m.score_pct })) };
+          }
+          break;
+        }
+        case 'frequency': {
+          if (rule.entity_type === 'checklist') {
+            const days = condition.value || 90;
+            const checkResult = await db.execute({
+              sql: `SELECT ct.id, ct.name, MAX(cs.submission_date) as last_submission
+                    FROM checklist_templates ct
+                    LEFT JOIN checklist_submissions cs ON ct.id = cs.template_id AND cs.facility_id = ?
+                    GROUP BY ct.id
+                    HAVING last_submission IS NULL OR last_submission < date('now', '-' || ? || ' days')`,
+              args: [facilityId, days],
+            });
+            const overdue = (checkResult.rows as any[]) || [];
+            status = overdue.length === 0 ? 'pass' : 'fail';
+            details = { overdue_count: overdue.length, items: overdue.slice(0, 5).map((c: any) => c.name) };
+          }
+          break;
+        }
+        case 'expiration': {
+          if (rule.entity_type === 'sop') {
+            const days = condition.value || 365;
+            const expResult = await db.execute({
+              sql: `SELECT sd.sop_code, sd.title, sfs.last_reviewed
+                    FROM sop_documents sd
+                    LEFT JOIN sop_facility_status sfs ON sd.id = sfs.sop_id AND sfs.facility_id = ?
+                    WHERE sfs.last_reviewed IS NULL OR sfs.last_reviewed < date('now', '-' || ? || ' days')`,
+              args: [facilityId, days],
+            });
+            const expired = (expResult.rows as any[]) || [];
+            status = expired.length === 0 ? 'pass' : expired.length <= 2 ? 'warning' : 'fail';
+            details = { overdue_count: expired.length, items: expired.slice(0, 5).map((s: any) => s.sop_code) };
+          } else if (rule.entity_type === 'capa') {
+            const capaResult = await db.execute({
+              sql: `SELECT ca.id, ca.action_description, ca.target_completion_date, n.severity
+                    FROM corrective_actions ca
+                    JOIN nonconformances n ON ca.nonconformance_id = n.id
+                    WHERE ca.status IN ('open', 'in_progress')
+                    AND ca.target_completion_date < date('now')`,
+              args: [],
+            });
+            const overdue = (capaResult.rows as any[]) || [];
+            status = overdue.length === 0 ? 'pass' : 'fail';
+            details = { overdue_capas: overdue.length, items: overdue.slice(0, 5).map((c: any) => ({ id: c.id, due: c.target_completion_date })) };
+          } else if (rule.entity_type === 'certification') {
+            const certResult = await db.execute({
+              sql: `SELECT sc.cert_name, sc.expiry_date, s.name as supplier_name
+                    FROM supplier_certifications sc
+                    JOIN suppliers s ON sc.supplier_id = s.id
+                    WHERE s.is_active = 1 AND sc.expiry_date < date('now')`,
+              args: [],
+            });
+            const expired = (certResult.rows as any[]) || [];
+            status = expired.length === 0 ? 'pass' : 'fail';
+            details = { expired_certs: expired.length, items: expired.slice(0, 5).map((c: any) => ({ cert: c.cert_name, supplier: c.supplier_name })) };
+          }
+          break;
+        }
+      }
+    } catch (err) {
+      status = 'warning';
+      details = { error: 'Rule evaluation failed' };
+    }
+
+    // Save result
+    if (assessmentId) {
+      await db.execute({
+        sql: `INSERT INTO compliance_rule_results (rule_id, facility_id, assessment_id, status, details) VALUES (?, ?, ?, ?, ?)`,
+        args: [rule.id, facilityId, assessmentId, status, JSON.stringify(details)],
+      });
+    }
+
+    if (status === 'pass') passed++;
+    else if (status === 'fail') failed++;
+    else if (status === 'warning') warnings++;
+
+    results.push({
+      rule_id: rule.id,
+      rule_code: rule.rule_code,
+      rule_name: rule.rule_name,
+      rule_type: rule.rule_type,
+      severity: rule.severity,
+      module_code: rule.module_code,
+      status,
+      details,
+    });
+  }
+
+  const total = passed + failed + warnings;
+
+  // Calculate risk score (0-100, higher = more risk)
+  const riskScore = total > 0 ? Math.round(((failed * 3 + warnings) / (total * 3)) * 100) : 0;
+  const riskLevel = riskScore >= 60 ? 'critical' : riskScore >= 40 ? 'high' : riskScore >= 20 ? 'medium' : 'low';
+
+  return { results, summary: { passed, failed, warnings, total }, risk_level: riskLevel, risk_score: riskScore };
+}
+
+async function calculateRiskScores(db: any, facilityId: number): Promise<any[]> {
+  // Get modules for facility
+  const modulesResult = await db.execute({
+    sql: `SELECT am.id, am.code, am.name FROM facility_modules fm JOIN audit_modules am ON fm.module_id = am.id WHERE fm.facility_id = ? AND fm.is_applicable = 1`,
+    args: [facilityId],
+  });
+  const modules = (modulesResult.rows as any[]) || [];
+  const risks: any[] = [];
+
+  for (const mod of modules) {
+    const factors: string[] = [];
+    const recommendations: string[] = [];
+    let riskPoints = 0;
+
+    // Factor 1: SOP readiness for this module
+    const sopResult = await db.execute({
+      sql: `SELECT COUNT(*) as total, SUM(CASE WHEN sfs.status = 'current' THEN 1 ELSE 0 END) as current_count
+            FROM fsms_requirements fr
+            JOIN requirement_evidence_links rel ON fr.id = rel.requirement_id
+            JOIN sop_facility_status sfs ON rel.evidence_id = sfs.sop_id AND sfs.facility_id = ?
+            WHERE fr.module_id = ? AND rel.evidence_type = 'sop'`,
+      args: [facilityId, mod.id],
+    });
+    const sopData = (sopResult.rows[0] as any) || {};
+    if (sopData.total > 0 && sopData.current_count < sopData.total) {
+      const pct = Math.round((sopData.current_count / sopData.total) * 100);
+      riskPoints += (100 - pct) * 0.3;
+      factors.push(`SOP readiness at ${pct}% (${sopData.current_count}/${sopData.total})`);
+      recommendations.push('Review and update non-current SOPs for this module');
+    }
+
+    // Factor 2: Recent audit score
+    const auditResult = await db.execute({
+      sql: `SELECT ROUND(SUM(ar.score) * 100.0 / NULLIF(SUM(aq.points), 0), 2) as score_pct
+            FROM audit_simulations asim
+            JOIN audit_responses ar ON asim.id = ar.simulation_id
+            JOIN audit_questions_v2 aq ON ar.question_id = aq.id
+            WHERE asim.facility_id = ? AND aq.module_id = ?
+            AND asim.id = (SELECT MAX(id) FROM audit_simulations WHERE facility_id = ?)`,
+      args: [facilityId, mod.id, facilityId],
+    });
+    const auditData = (auditResult.rows[0] as any) || {};
+    const scorePct = auditData.score_pct || 0;
+    if (scorePct < 70) {
+      riskPoints += (70 - scorePct) * 0.5;
+      factors.push(`Audit score below threshold at ${scorePct}%`);
+      recommendations.push('Focus training and review on low-scoring audit areas');
+    } else if (scorePct === 0) {
+      riskPoints += 20;
+      factors.push('No audit data available');
+      recommendations.push('Complete an audit simulation for this module');
+    }
+
+    // Factor 3: Open findings
+    const findingsResult = await db.execute({
+      sql: `SELECT COUNT(*) as count,
+            SUM(CASE WHEN af.severity = 'critical' THEN 1 ELSE 0 END) as critical_count
+            FROM audit_findings af
+            JOIN audit_questions_v2 aq ON af.question_id = aq.id
+            WHERE af.facility_id = ? AND aq.module_id = ? AND af.status = 'open'`,
+      args: [facilityId, mod.id],
+    });
+    const findingsData = (findingsResult.rows[0] as any) || {};
+    if ((findingsData.count || 0) > 0) {
+      riskPoints += (findingsData.critical_count || 0) * 15 + ((findingsData.count || 0) - (findingsData.critical_count || 0)) * 5;
+      factors.push(`${findingsData.count} open finding(s), ${findingsData.critical_count || 0} critical`);
+      recommendations.push('Address open audit findings, prioritizing critical items');
+    }
+
+    // Factor 4: Overdue CAPAs related to this module (approximate via nonconformance category)
+    const capaResult = await db.execute({
+      sql: `SELECT COUNT(*) as count FROM corrective_actions ca
+            JOIN nonconformances n ON ca.nonconformance_id = n.id
+            WHERE ca.status IN ('open', 'in_progress') AND ca.target_completion_date < date('now')`,
+      args: [],
+    });
+    const capaData = (capaResult.rows[0] as any) || {};
+    if ((capaData.count || 0) > 0) {
+      riskPoints += (capaData.count || 0) * 8;
+      factors.push(`${capaData.count} overdue CAPA(s)`);
+      recommendations.push('Resolve overdue corrective actions');
+    }
+
+    // Normalize risk score 0-100
+    const riskScore = Math.min(100, Math.round(riskPoints));
+    const riskLevel = riskScore >= 75 ? 'critical' : riskScore >= 50 ? 'high' : riskScore >= 25 ? 'medium' : 'low';
+
+    // Save to risk_scores
+    await db.execute({
+      sql: `INSERT INTO risk_scores (facility_id, module_code, risk_level, risk_score, contributing_factors, recommendations, calculated_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+      args: [facilityId, mod.code, riskLevel, riskScore, JSON.stringify(factors), JSON.stringify(recommendations)],
+    });
+
+    risks.push({
+      module_code: mod.code,
+      module_name: mod.name,
+      risk_level: riskLevel,
+      risk_score: riskScore,
+      contributing_factors: factors,
+      recommendations: recommendations,
+    });
+  }
+
+  return risks;
+}
+
 async function calculateComplianceScore(db: any, facilityId: number, simulationId?: number): Promise<ComplianceScoreResult> {
   // Get applicable modules for facility
   const modulesResult = await db.execute({
@@ -2723,6 +3003,202 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
     major_findings: majorFindings,
     minor_findings: minorFindings,
   };
+}
+
+// ============================================================================
+// ADVANCED REPORTING & MONITORING
+// ============================================================================
+
+async function handleReporting(req: VercelRequest, res: VercelResponse, db: any, userId: number, path: string[]) {
+  try {
+    // GET /reporting/facilities/{facilityId}/rules — Run rules engine
+    if (path[0] === 'facilities' && path[2] === 'rules' && req.method === 'GET') {
+      const facilityId = parseInt(path[1], 10);
+      if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
+
+      const saveResults = req.query?.save === 'true';
+      let assessmentId: number | undefined;
+
+      if (saveResults) {
+        // Create a compliance assessment first
+        const scoreResult = await calculateComplianceScore(db, facilityId);
+        const insertResult = await db.execute({
+          sql: `INSERT INTO compliance_assessments (facility_id, assessment_date, assessment_type, overall_score, overall_grade, module_scores, module_statuses, sop_readiness_pct, checklist_submissions_pct, audit_coverage_pct, critical_findings_count, major_findings_count, minor_findings_count, assessed_by)
+                VALUES (?, datetime('now'), 'rules_engine', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [facilityId, scoreResult.overall_score, scoreResult.overall_grade, JSON.stringify(scoreResult.module_scores), JSON.stringify(scoreResult.module_scores.map((m: any) => m.status)), scoreResult.sop_readiness_pct, scoreResult.checklist_submissions_pct, scoreResult.audit_coverage_pct, scoreResult.critical_findings, scoreResult.major_findings, scoreResult.minor_findings, userId],
+        });
+        assessmentId = Number(insertResult.lastInsertRowid);
+      }
+
+      const ruleResults = await evaluateComplianceRules(db, facilityId, assessmentId);
+      return res.status(200).json(ruleResults);
+    }
+
+    // GET /reporting/facilities/{facilityId}/risk — Risk scores
+    if (path[0] === 'facilities' && path[2] === 'risk' && req.method === 'GET') {
+      const facilityId = parseInt(path[1], 10);
+      if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
+
+      const risks = await calculateRiskScores(db, facilityId);
+
+      // Overall facility risk
+      const avgRisk = risks.length > 0 ? Math.round(risks.reduce((sum: number, r: any) => sum + r.risk_score, 0) / risks.length) : 0;
+      const facilityRiskLevel = avgRisk >= 75 ? 'critical' : avgRisk >= 50 ? 'high' : avgRisk >= 25 ? 'medium' : 'low';
+
+      return res.status(200).json({
+        facility_risk_score: avgRisk,
+        facility_risk_level: facilityRiskLevel,
+        module_risks: risks,
+      });
+    }
+
+    // GET /reporting/facilities/{facilityId}/trends — Compliance trends
+    if (path[0] === 'facilities' && path[2] === 'trends' && req.method === 'GET') {
+      const facilityId = parseInt(path[1], 10);
+      if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
+
+      const periodType = (req.query?.period as string) || 'monthly';
+
+      // Get assessment history and group by period
+      const assessments = await db.execute({
+        sql: `SELECT id, assessment_date, overall_score, overall_grade, module_scores,
+              sop_readiness_pct, checklist_submissions_pct, audit_coverage_pct,
+              critical_findings_count, major_findings_count, minor_findings_count
+              FROM compliance_assessments
+              WHERE facility_id = ?
+              ORDER BY assessment_date DESC
+              LIMIT 52`,
+        args: [facilityId],
+      });
+
+      // Also get stored trends
+      const trends = await db.execute({
+        sql: `SELECT * FROM compliance_trends WHERE facility_id = ? AND period_type = ? ORDER BY period_start DESC LIMIT 24`,
+        args: [facilityId, periodType],
+      });
+
+      return res.status(200).json({
+        assessments: (assessments.rows as any[]) || [],
+        trends: (trends.rows as any[]) || [],
+      });
+    }
+
+    // GET /reporting/facilities/{facilityId}/snapshot — Save trend snapshot
+    if (path[0] === 'facilities' && path[2] === 'snapshot' && req.method === 'POST') {
+      const facilityId = parseInt(path[1], 10);
+      if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
+
+      const score = await calculateComplianceScore(db, facilityId);
+      const ruleResults = await evaluateComplianceRules(db, facilityId);
+
+      const now = new Date();
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+
+      await db.execute({
+        sql: `INSERT INTO compliance_trends (facility_id, period_type, period_start, period_end, overall_score, overall_grade, module_scores, sop_readiness_pct, checklist_pct, audit_pct, critical_count, major_count, minor_count, rules_passed, rules_failed, rules_total)
+              VALUES (?, 'weekly', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [facilityId, weekStart.toISOString().split('T')[0], weekEnd.toISOString().split('T')[0], score.overall_score, score.overall_grade, JSON.stringify(score.module_scores), score.sop_readiness_pct, score.checklist_submissions_pct, score.audit_coverage_pct, score.critical_findings, score.major_findings, score.minor_findings, ruleResults.summary.passed, ruleResults.summary.failed, ruleResults.summary.total],
+      });
+
+      return res.status(200).json({ message: 'Trend snapshot saved', score, rules: ruleResults.summary });
+    }
+
+    // GET /reporting/facilities/{facilityId}/export — Export compliance report data
+    if (path[0] === 'facilities' && path[2] === 'export' && req.method === 'GET') {
+      const facilityId = parseInt(path[1], 10);
+      if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
+
+      // Gather comprehensive report data
+      const score = await calculateComplianceScore(db, facilityId);
+      const ruleResults = await evaluateComplianceRules(db, facilityId);
+      const risks = await calculateRiskScores(db, facilityId);
+
+      const facility = await db.execute({
+        sql: 'SELECT * FROM facilities WHERE id = ?',
+        args: [facilityId],
+      });
+
+      const assessmentHistory = await db.execute({
+        sql: `SELECT * FROM compliance_assessments WHERE facility_id = ? ORDER BY assessment_date DESC LIMIT 12`,
+        args: [facilityId],
+      });
+
+      return res.status(200).json({
+        report_date: new Date().toISOString(),
+        facility: (facility.rows as any[])[0] || null,
+        compliance_score: score,
+        rules_evaluation: ruleResults,
+        risk_assessment: {
+          facility_risk_score: risks.length > 0 ? Math.round(risks.reduce((s: number, r: any) => s + r.risk_score, 0) / risks.length) : 0,
+          module_risks: risks,
+        },
+        assessment_history: (assessmentHistory.rows as any[]) || [],
+      });
+    }
+
+    // GET /reporting/comparison — Multi-facility comparison
+    if (path[0] === 'comparison' && req.method === 'GET') {
+      const facilityIds = ((req.query?.facility_ids as string) || '').split(',').map(Number).filter(Boolean);
+      if (facilityIds.length === 0) return res.status(400).json({ error: 'facility_ids required' });
+
+      const comparisons = [];
+      for (const fid of facilityIds) {
+        const facilityResult = await db.execute({ sql: 'SELECT id, name, code FROM facilities WHERE id = ?', args: [fid] });
+        const facility = (facilityResult.rows as any[])[0];
+        if (!facility) continue;
+
+        const score = await calculateComplianceScore(db, fid);
+        comparisons.push({
+          facility_id: fid,
+          facility_name: facility.name,
+          facility_code: facility.code,
+          overall_score: score.overall_score,
+          overall_grade: score.overall_grade,
+          module_scores: score.module_scores,
+          sop_readiness_pct: score.sop_readiness_pct,
+          checklist_submissions_pct: score.checklist_submissions_pct,
+          audit_coverage_pct: score.audit_coverage_pct,
+        });
+      }
+
+      return res.status(200).json({ comparisons });
+    }
+
+    // GET /reporting/rules — List all rules
+    if (path[0] === 'rules' && req.method === 'GET') {
+      const rules = await db.execute({
+        sql: 'SELECT * FROM compliance_rules ORDER BY rule_code',
+        args: [],
+      });
+      return res.status(200).json((rules.rows as any[]) || []);
+    }
+
+    // PUT /reporting/rules/{ruleId} — Toggle rule active status
+    if (path[0] === 'rules' && path[1] && req.method === 'PUT') {
+      const { allowed } = await requireRole(userId, db, ['admin']);
+      if (!allowed) return res.status(403).json({ error: 'Admin only' });
+
+      const ruleId = parseInt(path[1], 10);
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+
+      await db.execute({
+        sql: 'UPDATE compliance_rules SET is_active = ? WHERE id = ?',
+        args: [body.is_active ? 1 : 0, ruleId],
+      });
+      return res.status(200).json({ message: 'Rule updated' });
+    }
+
+    return res.status(404).json({ error: 'Not found' });
+  } catch (error) {
+    console.error('Reporting handler error:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
 }
 
 async function handleCompliance(req: VercelRequest, res: VercelResponse, db: any, userId: number, path: string[]) {
@@ -2988,6 +3464,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // COMPLIANCE ROUTES
     if (pathArray[0] === 'compliance') {
       return await handleCompliance(req, res, db, userId, pathArray.slice(1));
+    }
+
+    // REPORTING & MONITORING ROUTES
+    if (pathArray[0] === 'reporting') {
+      return await handleReporting(req, res, db, userId, pathArray.slice(1));
     }
 
     // SUPPLIERS ROUTES

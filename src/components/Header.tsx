@@ -30,6 +30,7 @@ const allNavGroups: NavGroup[] = [
       { to: '/gap-analysis', label: 'Gap Analysis' },
       { to: '/audit-simulator', label: 'Audit Simulator' },
       { to: '/compliance', label: 'Compliance Dashboard' },
+      { to: '/compliance-reporting', label: 'Compliance Reporting' },
     ],
     roles: ['fsqa', 'management', 'admin'],
   },

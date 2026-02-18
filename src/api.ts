@@ -246,3 +246,21 @@ export const certAPI = {
   delete: (id: number) => api.delete(`/netsuite/certifications/${id}`),
   download: (id: number) => api.get(`/netsuite/certifications/${id}/download`, { responseType: 'blob' }),
 };
+
+export const reportingAPI = {
+  evaluateRules: (facilityId: number, save?: boolean) =>
+    api.get(`/reporting/facilities/${facilityId}/rules`, { params: save ? { save: 'true' } : {} }),
+  getRisk: (facilityId: number) =>
+    api.get(`/reporting/facilities/${facilityId}/risk`),
+  getTrends: (facilityId: number, period?: string) =>
+    api.get(`/reporting/facilities/${facilityId}/trends`, { params: period ? { period } : {} }),
+  saveSnapshot: (facilityId: number) =>
+    api.post(`/reporting/facilities/${facilityId}/snapshot`),
+  exportReport: (facilityId: number) =>
+    api.get(`/reporting/facilities/${facilityId}/export`),
+  comparison: (facilityIds: number[]) =>
+    api.get('/reporting/comparison', { params: { facility_ids: facilityIds.join(',') } }),
+  getRules: () => api.get('/reporting/rules'),
+  toggleRule: (ruleId: number, isActive: boolean) =>
+    api.put(`/reporting/rules/${ruleId}`, { is_active: isActive }),
+};
