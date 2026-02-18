@@ -46,6 +46,16 @@ const allNavGroups: NavGroup[] = [
     ],
     roles: ['supervisor', 'fsqa', 'management', 'admin'],
   },
+  {
+    label: 'Setup',
+    items: [
+      { to: '/admin', label: 'Users' },
+      { to: '/admin/roles', label: 'Roles' },
+      { to: '/admin/transactions', label: 'Transactions' },
+      { to: '/admin/audit', label: 'Audit' },
+    ],
+    roles: ['admin'],
+  },
 ];
 
 function getNavGroups(role: string): NavGroup[] {
@@ -166,16 +176,6 @@ export function Header() {
                 )}
               </div>
             ))}
-            {user.role === 'admin' && (
-              <Link
-                to="/admin"
-                className={`px-3 py-2 rounded text-sm font-semibold transition ${
-                  isActive('/admin') ? 'bg-white/15' : 'hover:bg-white/10'
-                }`}
-              >
-                Admin
-              </Link>
-            )}
           </nav>
 
           {/* Notification bell */}
@@ -275,7 +275,7 @@ export function Header() {
                   className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition"
                 >
                   <Settings size={14} />
-                  Settings
+                  Setup
                 </Link>
                 <button
                   onClick={handleLogout}
@@ -308,14 +308,6 @@ export function Header() {
               ))}
             </div>
           ))}
-          {user.role === 'admin' && (
-            <div className="mt-3">
-              <div className="text-blue-200 text-xs font-semibold uppercase tracking-wider mb-1">Admin</div>
-              <Link to="/admin" className="block py-2 px-3 rounded-lg text-sm hover:bg-white/10">
-                User Management
-              </Link>
-            </div>
-          )}
           <div className="mt-4 pt-4 border-t border-white/20">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">

@@ -25,6 +25,9 @@ import { AuditChecklistPage } from '@/pages/AuditChecklistPage';
 import { ComplianceDashboardPage } from '@/pages/ComplianceDashboardPage';
 import { ComplianceReportingPage } from '@/pages/ComplianceReportingPage';
 import { TrainingPage } from '@/pages/TrainingPage';
+import { RolesPage } from '@/pages/RolesPage';
+import { TransactionsPage } from '@/pages/TransactionsPage';
+import { AuditLogPage } from '@/pages/AuditLogPage';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
@@ -180,6 +183,30 @@ export default function App() {
             <RoleProtectedRoute allowedRoles={['supervisor', 'fsqa', 'management', 'admin']}>
               <TrainingPage />
             </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/roles"
+          element={
+            <AdminProtectedRoute>
+              <RolesPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/transactions"
+          element={
+            <AdminProtectedRoute>
+              <TransactionsPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/audit"
+          element={
+            <AdminProtectedRoute>
+              <AuditLogPage />
+            </AdminProtectedRoute>
           }
         />
         <Route
