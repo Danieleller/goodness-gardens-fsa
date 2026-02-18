@@ -324,6 +324,9 @@ async function handleAuthLogin(req: VercelRequest, res: VercelResponse, db: any)
 
   const token = signToken(user.id);
 
+  // Log login to audit log
+  await logAuditAction(db, user.id, 'login', 'session', null, null, { email: user.email });
+
   return res.status(200).json({
     token,
     user: {

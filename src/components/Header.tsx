@@ -125,7 +125,12 @@ export function Header() {
   const [enabledModules, setEnabledModules] = useState<Set<string>>(
     () => new Set(allNavGroups.flatMap(g => g.items.filter(i => i.moduleKey).map(i => i.moduleKey!)))
   );
-  const [recentPages, setRecentPages] = useState<{ path: string; label: string; time: number }[]>([]);
+  const [recentPages, setRecentPages] = useState<{ path: string; label: string; time: number }[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('fsqa_recent_pages');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [recentOpen, setRecentOpen] = useState(false);
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
@@ -142,7 +147,7 @@ export function Header() {
     navigate('/login');
   };
 
-  // Track recent page visits
+  // Track recent page visits (persisted to sessionStorage)
   useEffect(() => {
     const path = location.pathname;
     const label = PAGE_LABELS[path];
@@ -150,7 +155,9 @@ export function Header() {
 
     setRecentPages((prev) => {
       const filtered = prev.filter((p) => p.path !== path);
-      return [{ path, label, time: Date.now() }, ...filtered].slice(0, 10);
+      const updated = [{ path, label, time: Date.now() }, ...filtered].slice(0, 10);
+      try { sessionStorage.setItem('fsqa_recent_pages', JSON.stringify(updated)); } catch {}
+      return updated;
     });
   }, [location.pathname]);
 
