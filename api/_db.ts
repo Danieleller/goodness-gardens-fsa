@@ -1075,6 +1075,8 @@ async function seedDb() {
     await seedPhase5(db);
     // Run Phase 6 seeds (app module configuration)
     await seedPhase6(db);
+    // Index all users for global search
+    await seedUserSearchIndex(db);
     seedData = true;
     return;
   }
@@ -1306,8 +1308,26 @@ async function seedDb() {
   await seedPhase4(db);
   await seedPhase5(db);
   await seedPhase6(db);
+  await seedUserSearchIndex(db);
 
   seedData = true;
+}
+
+async function seedUserSearchIndex(db: ReturnType<typeof createClient>) {
+  // Index all active users for global search
+  const users = await db.execute({ sql: 'SELECT id, email, first_name, last_name, title, role FROM users WHERE is_active = 1', args: [] });
+  for (const row of users.rows) {
+    const u = row as any;
+    const tokens = [u.first_name, u.last_name, u.email, u.title, u.role].filter(Boolean).join(' ').toLowerCase();
+    await db.execute({
+      sql: `INSERT INTO search_index (entity_type, entity_id, title, subtitle, tokens, tags, facility_id, url, updated_at)
+            VALUES ('user', ?, ?, ?, ?, ?, NULL, '/admin', datetime('now'))
+            ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+              title = excluded.title, subtitle = excluded.subtitle, tokens = excluded.tokens,
+              tags = excluded.tags, url = excluded.url, updated_at = datetime('now')`,
+      args: [u.id, `${u.first_name} ${u.last_name}`, `${u.email}${u.title ? ' · ' + u.title : ''}`, tokens, `${u.email} ${u.role}`],
+    });
+  }
 }
 
 async function seedPhase1(db: ReturnType<typeof createClient>) {

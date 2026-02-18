@@ -6,6 +6,7 @@ import { notificationsAPI, searchAPI } from '@/api';
 
 // Search result type icons & labels
 const searchTypeIcons: Record<string, React.ReactNode> = {
+  user: <User size={14} className="text-indigo-500" />,
   supplier: <UsersIcon size={14} className="text-blue-500" />,
   facility: <Building2 size={14} className="text-green-500" />,
   sop: <FileText size={14} className="text-purple-500" />,
@@ -14,7 +15,7 @@ const searchTypeIcons: Record<string, React.ReactNode> = {
   audit: <Shield size={14} className="text-red-500" />,
 };
 const searchTypeLabels: Record<string, string> = {
-  supplier: 'Suppliers', facility: 'Facilities', sop: 'Documents',
+  user: 'Employees', supplier: 'Suppliers', facility: 'Facilities', sop: 'Documents',
   checklist: 'Checklists', capa: 'CAPA', audit: 'Audits',
 };
 

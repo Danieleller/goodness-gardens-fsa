@@ -1180,6 +1180,13 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
 
       const newUserId = Number(result.lastInsertRowid);
 
+      // Index user for global search
+      await upsertSearchIndex(db, 'user', newUserId,
+        `${first_name} ${last_name}`,
+        `${email}${title ? ' · ' + title : ''}`,
+        `${email} farmer`,
+        null, '/admin');
+
       // Assign facility if provided (null means Organization / All Facilities)
       if (facility_id) {
         await db.execute({
@@ -1294,7 +1301,17 @@ async function handleAdmin(req: VercelRequest, res: VercelResponse, db: any, use
       args: [targetId],
     });
 
-    return res.status(200).json(updated.rows[0]);
+    // Update search index for this user
+    const u = updated.rows[0] as any;
+    if (u) {
+      await upsertSearchIndex(db, 'user', u.id,
+        `${u.first_name} ${u.last_name}`,
+        `${u.email}${u.title ? ' · ' + u.title : ''}`,
+        `${u.email} ${u.role}`,
+        u.facility_id || null, '/admin');
+    }
+
+    return res.status(200).json(u);
   }
 
   if (req.method === 'DELETE') {
