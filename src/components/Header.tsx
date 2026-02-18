@@ -1,7 +1,8 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, Menu, X, ChevronDown, User, Settings, Search } from 'lucide-react';
+import { LogOut, Menu, X, ChevronDown, User, Settings, Search, Bell } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store';
+import { notificationsAPI } from '@/api';
 import { SearchModal } from './SearchModal';
 
 interface NavGroup {
@@ -41,6 +42,7 @@ const allNavGroups: NavGroup[] = [
       { to: '/suppliers', label: 'Suppliers' },
       { to: '/facilities', label: 'Facilities' },
       { to: '/reports', label: 'Reports' },
+      { to: '/training', label: 'Training' },
     ],
     roles: ['supervisor', 'fsqa', 'management', 'admin'],
   },
@@ -55,11 +57,14 @@ export function Header() {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   const handleLogout = () => {
     logout();
@@ -70,6 +75,7 @@ export function Header() {
     setMobileMenuOpen(false);
     setOpenDropdown(null);
     setUserMenuOpen(false);
+    setNotifOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -80,9 +86,24 @@ export function Header() {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
         setUserMenuOpen(false);
       }
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const loadNotifications = async () => {
+      try {
+        const res = await notificationsAPI.getAll(true);
+        setNotifications(res.data?.notifications || []);
+      } catch {}
+    };
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   if (!user) return null;
@@ -156,6 +177,72 @@ export function Header() {
               </Link>
             )}
           </nav>
+
+          {/* Notification bell */}
+          <div ref={notifRef} className="hidden lg:block relative">
+            <button
+              onClick={() => setNotifOpen(!notifOpen)}
+              className="relative p-2 rounded hover:bg-white/10 transition"
+            >
+              <Bell size={18} />
+              {notifications.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 rounded-full text-xs flex items-center justify-center font-bold">
+                  {notifications.length > 9 ? '9+' : notifications.length}
+                </span>
+              )}
+            </button>
+            {notifOpen && (
+              <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-xl py-1 min-w-[320px] max-h-[400px] overflow-y-auto z-50">
+                <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-800">Notifications</span>
+                  {notifications.length > 0 && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          await notificationsAPI.markAllRead();
+                          setNotifications([]);
+                        } catch {}
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-gray-400">No new notifications</div>
+                ) : (
+                  notifications.slice(0, 10).map((n: any) => (
+                    <div key={n.id} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition">
+                      <div className="flex items-start gap-2">
+                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
+                          n.type === 'critical' || n.type === 'expiry' ? 'bg-red-500' :
+                          n.type === 'warning' ? 'bg-yellow-500' : 'bg-blue-500'
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800 font-medium truncate">{n.title}</p>
+                          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.message}</p>
+                          <p className="text-xs text-gray-400 mt-1">{n.created_at ? new Date(n.created_at).toLocaleDateString() : ''}</p>
+                        </div>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await notificationsAPI.markRead(n.id);
+                              setNotifications(prev => prev.filter(x => x.id !== n.id));
+                            } catch {}
+                          }}
+                          className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
 
           {/* User dropdown menu */}
           <div ref={userMenuRef} className="hidden lg:block relative">

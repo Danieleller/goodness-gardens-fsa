@@ -258,9 +258,34 @@ export const reportingAPI = {
     api.post(`/reporting/facilities/${facilityId}/snapshot`),
   exportReport: (facilityId: number) =>
     api.get(`/reporting/facilities/${facilityId}/export`),
+  getPdfData: (facilityId: number) =>
+    api.get(`/reporting/facilities/${facilityId}/pdf-data`),
   comparison: (facilityIds: number[]) =>
     api.get('/reporting/comparison', { params: { facility_ids: facilityIds.join(',') } }),
   getRules: () => api.get('/reporting/rules'),
   toggleRule: (ruleId: number, isActive: boolean) =>
     api.put(`/reporting/rules/${ruleId}`, { is_active: isActive }),
+};
+
+export const trainingAPI = {
+  getRecords: (params?: { facility_id?: number; user_id?: number; status?: string }) =>
+    api.get('/training/records', { params }),
+  createRecord: (data: any) => api.post('/training/records', data),
+  updateRecord: (id: number, data: any) => api.put(`/training/records/${id}`, data),
+  deleteRecord: (id: number) => api.delete(`/training/records/${id}`),
+  getRequirements: () => api.get('/training/requirements'),
+  getCertifications: (userId?: number) =>
+    api.get('/training/certifications', { params: userId ? { user_id: userId } : {} }),
+  createCertification: (data: any) => api.post('/training/certifications', data),
+  updateCertification: (id: number, data: any) => api.put(`/training/certifications/${id}`, data),
+  getDashboard: (facilityId?: number) =>
+    api.get('/training/dashboard', { params: facilityId ? { facility_id: facilityId } : {} }),
+};
+
+export const notificationsAPI = {
+  getAll: (unread?: boolean) =>
+    api.get('/notifications', { params: unread ? { unread: 'true' } : {} }),
+  markRead: (id: number) => api.put(`/notifications/${id}/read`),
+  markAllRead: () => api.put('/notifications/read-all'),
+  dismiss: (id: number) => api.put(`/notifications/${id}/dismiss`),
 };

@@ -170,18 +170,116 @@ export function ComplianceReportingPage() {
     }
   };
 
-  const handleExportReport = async () => {
+  const handleExportReport = async (format: 'json' | 'pdf' = 'pdf') => {
     if (!selectedFacilityId) return;
     try {
-      const res = await reportingAPI.exportReport(parseInt(selectedFacilityId));
-      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `compliance-report-${selectedFacilityId}-${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setToastMessage('Report exported!');
+      const res = await reportingAPI.getPdfData(parseInt(selectedFacilityId));
+      const data = res.data;
+      const facilityName = facilities.find(f => String(f.id) === selectedFacilityId)?.name || 'Facility';
+      const dateStr = new Date().toISOString().split('T')[0];
+
+      if (format === 'json') {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `compliance-report-${selectedFacilityId}-${dateStr}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        // Generate printable HTML report
+        const score = data.compliance_score || {};
+        const rules = data.rule_results || {};
+        const risk = data.risk_assessment || {};
+        const trends = data.trend_data?.assessments || [];
+
+        const ruleRows = (rules.results || []).map((r: any) => `
+          <tr>
+            <td>${r.rule_code || '-'}</td>
+            <td>${r.rule_name || '-'}</td>
+            <td>${r.severity || '-'}</td>
+            <td class="${r.status === 'passed' ? 'status-pass' : r.status === 'failed' ? 'status-fail' : 'status-warn'}">${r.status || '-'}</td>
+          </tr>`).join('');
+
+        const moduleRiskRows = (risk.module_risks || []).map((m: any) => `
+          <tr>
+            <td>${m.module_code || '-'}</td>
+            <td>${m.module_name || '-'}</td>
+            <td class="${m.risk_level === 'low' ? 'status-pass' : m.risk_level === 'high' ? 'status-fail' : 'status-warn'}">${m.risk_level || '-'}</td>
+            <td>${m.risk_score ?? '-'}</td>
+            <td>${(m.recommendations || []).join('; ') || 'None'}</td>
+          </tr>`).join('');
+
+        const trendRows = trends.slice(0, 10).map((t: any) => `
+          <tr>
+            <td>${t.assessment_date ? t.assessment_date.split('T')[0] : '-'}</td>
+            <td>${t.overall_score ?? '-'}%</td>
+            <td>${t.overall_grade || '-'}</td>
+            <td>${t.critical_findings_count ?? 0}C / ${t.major_findings_count ?? 0}Mj / ${t.minor_findings_count ?? 0}Mn</td>
+          </tr>`).join('');
+
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Compliance Report - ${facilityName}</title>
+<style>
+  @media print { body { margin: 0; } .no-print { display: none !important; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; line-height: 1.5; padding: 40px; max-width: 900px; margin: 0 auto; }
+  .header { text-align: center; border-bottom: 3px solid #1A3A5C; padding-bottom: 20px; margin-bottom: 30px; }
+  .header h1 { color: #1A3A5C; font-size: 28px; margin-bottom: 4px; }
+  .header .subtitle { color: #666; font-size: 14px; }
+  .score-banner { display: flex; justify-content: center; gap: 40px; background: #f0f9f0; border: 1px solid #c6e6c6; border-radius: 12px; padding: 24px; margin-bottom: 30px; text-align: center; }
+  .score-banner .big-num { font-size: 48px; font-weight: 800; }
+  .score-banner .label { font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+  .grade-a { color: #16a34a; } .grade-b { color: #2563eb; } .grade-c { color: #ca8a04; } .grade-fail { color: #dc2626; }
+  h2 { color: #1A3A5C; font-size: 20px; margin: 30px 0 12px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }
+  th { background: #f3f4f6; text-align: left; padding: 8px 12px; font-weight: 600; border-bottom: 2px solid #d1d5db; }
+  td { padding: 7px 12px; border-bottom: 1px solid #e5e7eb; }
+  tr:hover { background: #f9fafb; }
+  .status-pass { color: #16a34a; font-weight: 600; } .status-fail { color: #dc2626; font-weight: 600; } .status-warn { color: #ca8a04; font-weight: 600; }
+  .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .summary-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; text-align: center; }
+  .summary-card .val { font-size: 28px; font-weight: 700; } .summary-card .lbl { font-size: 12px; color: #666; }
+  .footer { text-align: center; color: #999; font-size: 11px; margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 12px; }
+  .print-btn { display: block; margin: 0 auto 30px; padding: 12px 32px; background: #1A3A5C; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+  .print-btn:hover { background: #15304d; }
+</style></head><body>
+<button class="print-btn no-print" onclick="window.print()">Print / Save as PDF</button>
+<div class="header">
+  <h1>Goodness Gardens FSQA Compliance Report</h1>
+  <div class="subtitle">${facilityName} &mdash; Generated ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+</div>
+<div class="score-banner">
+  <div><div class="big-num ${(score.overall_grade || '').startsWith('A') ? 'grade-a' : score.overall_grade === 'B' ? 'grade-b' : score.overall_grade === 'C' ? 'grade-c' : 'grade-fail'}">${score.overall_score ?? '--'}%</div><div class="label">Overall Score</div></div>
+  <div><div class="big-num ${(score.overall_grade || '').startsWith('A') ? 'grade-a' : score.overall_grade === 'B' ? 'grade-b' : score.overall_grade === 'C' ? 'grade-c' : 'grade-fail'}">${score.overall_grade || '--'}</div><div class="label">Grade</div></div>
+  <div><div class="big-num ${(risk.facility_risk_level || '') === 'low' ? 'grade-a' : risk.facility_risk_level === 'medium' ? 'grade-c' : 'grade-fail'}">${risk.facility_risk_score ?? '--'}</div><div class="label">Risk Score</div></div>
+</div>
+<div class="summary-grid">
+  <div class="summary-card"><div class="val status-pass">${rules.summary?.passed ?? 0}</div><div class="lbl">Rules Passed</div></div>
+  <div class="summary-card"><div class="val status-fail">${rules.summary?.failed ?? 0}</div><div class="lbl">Rules Failed</div></div>
+  <div class="summary-card"><div class="val status-warn">${rules.summary?.warnings ?? 0}</div><div class="lbl">Warnings</div></div>
+</div>
+<h2>Compliance Rules Evaluation</h2>
+<table><thead><tr><th>Code</th><th>Rule</th><th>Severity</th><th>Status</th></tr></thead><tbody>${ruleRows || '<tr><td colspan="4">No rules evaluated</td></tr>'}</tbody></table>
+<h2>Risk Assessment by Module</h2>
+<table><thead><tr><th>Module</th><th>Name</th><th>Risk Level</th><th>Score</th><th>Recommendations</th></tr></thead><tbody>${moduleRiskRows || '<tr><td colspan="5">No module risk data</td></tr>'}</tbody></table>
+<h2>Assessment History</h2>
+<table><thead><tr><th>Date</th><th>Score</th><th>Grade</th><th>Findings</th></tr></thead><tbody>${trendRows || '<tr><td colspan="4">No assessment history</td></tr>'}</tbody></table>
+<div class="footer">Goodness Gardens FSQA Management Portal &bull; Report generated automatically &bull; ${dateStr}</div>
+</body></html>`;
+
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const win = window.open(url, '_blank');
+        if (!win) {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `compliance-report-${selectedFacilityId}-${dateStr}.html`;
+          a.click();
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }
+      setToastMessage('Report generated!');
       setTimeout(() => setToastMessage(''), 3000);
     } catch (error) {
       setToastMessage('Export failed');
@@ -234,20 +332,20 @@ export function ComplianceReportingPage() {
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-white">
       {/* Header */}
       <div className="bg-white border-b border-green-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <BarChart3 className="w-8 h-8 text-green-700" />
+              <BarChart3 className="w-7 h-7 sm:w-8 sm:h-8 text-green-700" />
               <div>
-                <h1 className="text-3xl font-bold text-green-900">Compliance Reporting</h1>
-                <p className="text-sm text-gray-500 mt-1">Rules engine, risk scoring, trends & analytics</p>
+                <h1 className="text-2xl sm:text-3xl font-bold text-green-900">Compliance Reporting</h1>
+                <p className="text-xs sm:text-sm text-gray-500 mt-1">Rules engine, risk scoring, trends & analytics</p>
               </div>
             </div>
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <select
                 value={selectedFacilityId}
                 onChange={(e) => setSelectedFacilityId(e.target.value)}
-                className="appearance-none px-4 py-2 pr-10 bg-white border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 cursor-pointer"
+                className="appearance-none w-full sm:w-auto px-3 py-2 pr-10 text-sm sm:px-4 sm:text-base bg-white border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 cursor-pointer"
               >
                 <option value="">Select a facility</option>
                 {facilities.map((f) => (
@@ -269,8 +367,8 @@ export function ComplianceReportingPage() {
 
       {/* Tab Bar */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex gap-1 overflow-x-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex gap-1 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -293,7 +391,7 @@ export function ComplianceReportingPage() {
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {loading && (
           <div className="flex items-center justify-center py-16">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
@@ -657,15 +755,24 @@ export function ComplianceReportingPage() {
               <p className="text-gray-600 mb-8">
                 Generate a comprehensive compliance report including scores, rule evaluations, risk assessments, and assessment history.
               </p>
-              <button
-                onClick={handleExportReport}
-                className="flex items-center gap-2 px-6 py-3 bg-green-700 text-white rounded-lg hover:bg-green-800 transition mx-auto text-lg font-medium"
-              >
-                <Download className="w-5 h-5" />
-                Download Report (JSON)
-              </button>
-              <p className="text-sm text-gray-400 mt-4">
-                Report includes: compliance score, all rule evaluations, risk assessment by module, and assessment history
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <button
+                  onClick={() => handleExportReport('pdf')}
+                  className="flex items-center gap-2 px-6 py-3 bg-green-700 text-white rounded-lg hover:bg-green-800 transition text-lg font-medium"
+                >
+                  <FileText className="w-5 h-5" />
+                  Printable Report
+                </button>
+                <button
+                  onClick={() => handleExportReport('json')}
+                  className="flex items-center gap-2 px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition text-sm font-medium"
+                >
+                  <Download className="w-4 h-4" />
+                  Raw Data (JSON)
+                </button>
+              </div>
+              <p className="text-sm text-gray-400 mt-6">
+                Printable Report opens a formatted page you can print or save as PDF. Raw Data exports all compliance data as JSON.
               </p>
             </div>
           </div>

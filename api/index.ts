@@ -3006,6 +3006,307 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
 }
 
 // ============================================================================
+// TRAINING & CERTIFICATION MODULE
+// ============================================================================
+
+async function handleTraining(req: VercelRequest, res: VercelResponse, db: any, userId: number, path: string[]) {
+  try {
+    // GET /training/records — List all training records (with filters)
+    if (path[0] === 'records' && !path[1] && req.method === 'GET') {
+      const facilityId = req.query?.facility_id ? parseInt(req.query.facility_id as string, 10) : null;
+      const userIdFilter = req.query?.user_id ? parseInt(req.query.user_id as string, 10) : null;
+      const status = req.query?.status as string;
+
+      let sql = `SELECT tr.*, u.first_name, u.last_name, u.email, f.name as facility_name
+                 FROM training_records tr
+                 JOIN users u ON tr.user_id = u.id
+                 LEFT JOIN facilities f ON tr.facility_id = f.id
+                 WHERE 1=1`;
+      const args: any[] = [];
+
+      if (facilityId) { sql += ' AND tr.facility_id = ?'; args.push(facilityId); }
+      if (userIdFilter) { sql += ' AND tr.user_id = ?'; args.push(userIdFilter); }
+      if (status) { sql += ' AND tr.status = ?'; args.push(status); }
+
+      sql += ' ORDER BY tr.training_date DESC LIMIT 200';
+
+      const result = await db.execute({ sql, args });
+      return res.status(200).json({ records: (result.rows as any[]) || [] });
+    }
+
+    // POST /training/records — Create training record
+    if (path[0] === 'records' && !path[1] && req.method === 'POST') {
+      const { allowed } = await requireRole(userId, db, ['supervisor', 'fsqa', 'management', 'admin']);
+      if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      const result = await db.execute({
+        sql: `INSERT INTO training_records (user_id, facility_id, training_type, training_title, description, trainer_name, training_date, expiry_date, hours, score, status, module_code, notes, created_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [body.user_id, body.facility_id || null, body.training_type, body.training_title, body.description || null, body.trainer_name || null, body.training_date, body.expiry_date || null, body.hours || 0, body.score || null, body.status || 'completed', body.module_code || null, body.notes || null, userId],
+      });
+      return res.status(201).json({ id: Number(result.lastInsertRowid), message: 'Training record created' });
+    }
+
+    // PUT /training/records/{id} — Update training record
+    if (path[0] === 'records' && path[1] && req.method === 'PUT') {
+      const { allowed } = await requireRole(userId, db, ['supervisor', 'fsqa', 'management', 'admin']);
+      if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+
+      const recordId = parseInt(path[1], 10);
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      await db.execute({
+        sql: `UPDATE training_records SET training_type = ?, training_title = ?, description = ?, trainer_name = ?, training_date = ?, expiry_date = ?, hours = ?, score = ?, status = ?, module_code = ?, notes = ? WHERE id = ?`,
+        args: [body.training_type, body.training_title, body.description || null, body.trainer_name || null, body.training_date, body.expiry_date || null, body.hours || 0, body.score || null, body.status || 'completed', body.module_code || null, body.notes || null, recordId],
+      });
+      return res.status(200).json({ message: 'Training record updated' });
+    }
+
+    // DELETE /training/records/{id}
+    if (path[0] === 'records' && path[1] && req.method === 'DELETE') {
+      const { allowed } = await requireRole(userId, db, ['admin']);
+      if (!allowed) return res.status(403).json({ error: 'Admin only' });
+
+      const recordId = parseInt(path[1], 10);
+      await db.execute({ sql: 'DELETE FROM training_records WHERE id = ?', args: [recordId] });
+      return res.status(200).json({ message: 'Training record deleted' });
+    }
+
+    // GET /training/requirements — List training requirements
+    if (path[0] === 'requirements' && req.method === 'GET') {
+      const result = await db.execute({ sql: 'SELECT * FROM training_requirements ORDER BY title', args: [] });
+      return res.status(200).json({ requirements: (result.rows as any[]) || [] });
+    }
+
+    // GET /training/certifications — List worker certifications
+    if (path[0] === 'certifications' && !path[1] && req.method === 'GET') {
+      const userIdFilter = req.query?.user_id ? parseInt(req.query.user_id as string, 10) : null;
+      let sql = `SELECT wc.*, u.first_name, u.last_name, u.email FROM worker_certifications wc JOIN users u ON wc.user_id = u.id WHERE 1=1`;
+      const args: any[] = [];
+      if (userIdFilter) { sql += ' AND wc.user_id = ?'; args.push(userIdFilter); }
+      sql += ' ORDER BY wc.expiry_date ASC';
+      const result = await db.execute({ sql, args });
+      return res.status(200).json({ certifications: (result.rows as any[]) || [] });
+    }
+
+    // POST /training/certifications — Add certification
+    if (path[0] === 'certifications' && !path[1] && req.method === 'POST') {
+      const { allowed } = await requireRole(userId, db, ['supervisor', 'fsqa', 'management', 'admin']);
+      if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      const result = await db.execute({
+        sql: `INSERT INTO worker_certifications (user_id, cert_type, cert_name, issuing_body, cert_number, issue_date, expiry_date, status, notes)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [body.user_id, body.cert_type, body.cert_name, body.issuing_body || null, body.cert_number || null, body.issue_date, body.expiry_date || null, body.status || 'active', body.notes || null],
+      });
+      return res.status(201).json({ id: Number(result.lastInsertRowid), message: 'Certification added' });
+    }
+
+    // PUT /training/certifications/{id}
+    if (path[0] === 'certifications' && path[1] && req.method === 'PUT') {
+      const { allowed } = await requireRole(userId, db, ['supervisor', 'fsqa', 'management', 'admin']);
+      if (!allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+
+      const certId = parseInt(path[1], 10);
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      await db.execute({
+        sql: `UPDATE worker_certifications SET cert_type = ?, cert_name = ?, issuing_body = ?, cert_number = ?, issue_date = ?, expiry_date = ?, status = ?, notes = ? WHERE id = ?`,
+        args: [body.cert_type, body.cert_name, body.issuing_body || null, body.cert_number || null, body.issue_date, body.expiry_date || null, body.status || 'active', body.notes || null, certId],
+      });
+      return res.status(200).json({ message: 'Certification updated' });
+    }
+
+    // GET /training/dashboard — Training compliance dashboard data
+    if (path[0] === 'dashboard' && req.method === 'GET') {
+      const facilityId = req.query?.facility_id ? parseInt(req.query.facility_id as string, 10) : null;
+
+      // Total workers at facility
+      let workerSql = `SELECT COUNT(*) as count FROM users WHERE is_active = 1`;
+      const workerArgs: any[] = [];
+      if (facilityId) {
+        workerSql = `SELECT COUNT(DISTINCT uf.user_id) as count FROM user_facilities uf JOIN users u ON uf.user_id = u.id WHERE u.is_active = 1 AND uf.facility_id = ?`;
+        workerArgs.push(facilityId);
+      }
+      const workerCount = await db.execute({ sql: workerSql, args: workerArgs });
+      const totalWorkers = ((workerCount.rows[0] as any)?.count || 0);
+
+      // Training requirements
+      const reqResult = await db.execute({ sql: 'SELECT COUNT(*) as count FROM training_requirements WHERE is_required = 1', args: [] });
+      const totalRequirements = ((reqResult.rows[0] as any)?.count || 0);
+
+      // Recent training records (last 90 days)
+      const recentResult = await db.execute({
+        sql: `SELECT COUNT(*) as count FROM training_records WHERE training_date >= date('now', '-90 days')`,
+        args: [],
+      });
+      const recentTraining = ((recentResult.rows[0] as any)?.count || 0);
+
+      // Expiring certifications (next 60 days)
+      const expiringCerts = await db.execute({
+        sql: `SELECT wc.*, u.first_name, u.last_name FROM worker_certifications wc JOIN users u ON wc.user_id = u.id WHERE wc.expiry_date BETWEEN date('now') AND date('now', '+60 days') ORDER BY wc.expiry_date`,
+        args: [],
+      });
+
+      // Expired certifications
+      const expiredCerts = await db.execute({
+        sql: `SELECT COUNT(*) as count FROM worker_certifications WHERE expiry_date < date('now') AND status = 'active'`,
+        args: [],
+      });
+
+      // Training by type summary
+      const byType = await db.execute({
+        sql: `SELECT training_type, COUNT(*) as count, MAX(training_date) as last_date FROM training_records GROUP BY training_type ORDER BY count DESC`,
+        args: [],
+      });
+
+      // Overdue training (workers missing required training)
+      const overdue = await db.execute({
+        sql: `SELECT treq.title, treq.training_type, treq.frequency_days,
+              COUNT(DISTINCT u.id) as total_workers,
+              COUNT(DISTINCT tr.user_id) as trained_workers
+              FROM training_requirements treq
+              CROSS JOIN users u
+              LEFT JOIN training_records tr ON tr.training_type = treq.training_type AND tr.user_id = u.id AND tr.training_date >= date('now', '-' || treq.frequency_days || ' days')
+              WHERE treq.is_required = 1 AND u.is_active = 1
+              GROUP BY treq.id
+              HAVING trained_workers < total_workers`,
+        args: [],
+      });
+
+      return res.status(200).json({
+        total_workers: totalWorkers,
+        total_requirements: totalRequirements,
+        recent_training_count: recentTraining,
+        expiring_certifications: (expiringCerts.rows as any[]) || [],
+        expired_cert_count: ((expiredCerts.rows[0] as any)?.count || 0),
+        training_by_type: (byType.rows as any[]) || [],
+        overdue_training: (overdue.rows as any[]) || [],
+      });
+    }
+
+    return res.status(404).json({ error: 'Not found' });
+  } catch (error) {
+    console.error('Training handler error:', error);
+    return res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+async function generateNotifications(db: any, facilityId?: number): Promise<void> {
+  // Auto-generate notifications for various conditions
+
+  // 1. Expiring supplier certifications (30 days)
+  const expiringCerts = await db.execute({
+    sql: `SELECT sc.id, sc.cert_name, sc.expiry_date, s.name as supplier_name
+          FROM supplier_certifications sc JOIN suppliers s ON sc.supplier_id = s.id
+          WHERE s.is_active = 1 AND sc.expiry_date BETWEEN date('now') AND date('now', '+30 days')`,
+    args: [],
+  });
+  for (const cert of (expiringCerts.rows as any[])) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO notifications (notification_type, severity, title, message, entity_type, entity_id, created_at)
+            SELECT 'cert_expiring', 'warning', ?, ?, 'supplier_certification', ?, datetime('now')
+            WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE entity_type = 'supplier_certification' AND entity_id = ? AND notification_type = 'cert_expiring' AND created_at > date('now', '-7 days'))`,
+      args: [`Certification Expiring: ${cert.cert_name}`, `${cert.supplier_name}'s ${cert.cert_name} expires ${cert.expiry_date}`, cert.id, cert.id],
+    });
+  }
+
+  // 2. Overdue CAPAs
+  const overdueCApas = await db.execute({
+    sql: `SELECT ca.id, ca.action_description, ca.target_completion_date FROM corrective_actions ca WHERE ca.status IN ('open', 'in_progress') AND ca.target_completion_date < date('now')`,
+    args: [],
+  });
+  for (const capa of (overdueCApas.rows as any[])) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO notifications (notification_type, severity, title, message, entity_type, entity_id, created_at)
+            SELECT 'capa_overdue', 'critical', ?, ?, 'corrective_action', ?, datetime('now')
+            WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE entity_type = 'corrective_action' AND entity_id = ? AND notification_type = 'capa_overdue' AND created_at > date('now', '-3 days'))`,
+      args: [`Overdue CAPA #${capa.id}`, `CAPA "${(capa.action_description || '').substring(0, 80)}" was due ${capa.target_completion_date}`, capa.id, capa.id],
+    });
+  }
+
+  // 3. Expiring worker certifications
+  const workerCerts = await db.execute({
+    sql: `SELECT wc.id, wc.cert_name, wc.expiry_date, u.first_name, u.last_name FROM worker_certifications wc JOIN users u ON wc.user_id = u.id WHERE wc.expiry_date BETWEEN date('now') AND date('now', '+60 days') AND wc.status = 'active'`,
+    args: [],
+  });
+  for (const cert of (workerCerts.rows as any[])) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO notifications (notification_type, severity, title, message, entity_type, entity_id, created_at)
+            SELECT 'worker_cert_expiring', 'warning', ?, ?, 'worker_certification', ?, datetime('now')
+            WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE entity_type = 'worker_certification' AND entity_id = ? AND notification_type = 'worker_cert_expiring' AND created_at > date('now', '-7 days'))`,
+      args: [`Worker Cert Expiring: ${cert.cert_name}`, `${cert.first_name} ${cert.last_name}'s ${cert.cert_name} expires ${cert.expiry_date}`, cert.id, cert.id],
+    });
+  }
+
+  // 4. Failed compliance rules (check if we have recent rule results)
+  const failedRules = await db.execute({
+    sql: `SELECT crr.id, cr.rule_name, cr.severity FROM compliance_rule_results crr JOIN compliance_rules cr ON crr.rule_id = cr.id WHERE crr.status = 'fail' AND crr.evaluated_at > date('now', '-1 day')`,
+    args: [],
+  });
+  for (const rule of (failedRules.rows as any[])) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO notifications (notification_type, severity, title, message, entity_type, entity_id, created_at)
+            SELECT 'rule_failed', ?, ?, ?, 'compliance_rule_result', ?, datetime('now')
+            WHERE NOT EXISTS (SELECT 1 FROM notifications WHERE entity_type = 'compliance_rule_result' AND entity_id = ? AND notification_type = 'rule_failed' AND created_at > date('now', '-1 day'))`,
+      args: [rule.severity === 'critical' ? 'critical' : 'warning', `Rule Failed: ${rule.rule_name}`, `Compliance rule "${rule.rule_name}" (${rule.severity}) did not pass`, rule.id, rule.id],
+    });
+  }
+}
+
+async function handleNotifications(req: VercelRequest, res: VercelResponse, db: any, userId: number, path: string[]) {
+  try {
+    // GET /notifications — List notifications
+    if (!path[0] && req.method === 'GET') {
+      // First, generate any new notifications
+      await generateNotifications(db);
+
+      const unreadOnly = req.query?.unread === 'true';
+      let sql = `SELECT * FROM notifications WHERE is_dismissed = 0`;
+      if (unreadOnly) sql += ' AND is_read = 0';
+      sql += ' ORDER BY created_at DESC LIMIT 50';
+
+      const result = await db.execute({ sql, args: [] });
+
+      // Count unread
+      const unreadResult = await db.execute({ sql: 'SELECT COUNT(*) as count FROM notifications WHERE is_read = 0 AND is_dismissed = 0', args: [] });
+      const unreadCount = ((unreadResult.rows[0] as any)?.count || 0);
+
+      return res.status(200).json({ notifications: (result.rows as any[]) || [], unread_count: unreadCount });
+    }
+
+    // PUT /notifications/{id}/read — Mark as read
+    if (path[1] === 'read' && req.method === 'PUT') {
+      const notifId = parseInt(path[0], 10);
+      await db.execute({ sql: 'UPDATE notifications SET is_read = 1 WHERE id = ?', args: [notifId] });
+      return res.status(200).json({ message: 'Marked as read' });
+    }
+
+    // PUT /notifications/read-all — Mark all as read
+    if (path[0] === 'read-all' && req.method === 'PUT') {
+      await db.execute({ sql: 'UPDATE notifications SET is_read = 1 WHERE is_read = 0', args: [] });
+      return res.status(200).json({ message: 'All notifications marked as read' });
+    }
+
+    // PUT /notifications/{id}/dismiss — Dismiss notification
+    if (path[1] === 'dismiss' && req.method === 'PUT') {
+      const notifId = parseInt(path[0], 10);
+      await db.execute({ sql: 'UPDATE notifications SET is_dismissed = 1 WHERE id = ?', args: [notifId] });
+      return res.status(200).json({ message: 'Dismissed' });
+    }
+
+    return res.status(404).json({ error: 'Not found' });
+  } catch (error) {
+    console.error('Notification handler error:', error);
+    return res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+}
+
+// ============================================================================
 // ADVANCED REPORTING & MONITORING
 // ============================================================================
 
@@ -3189,6 +3490,99 @@ async function handleReporting(req: VercelRequest, res: VercelResponse, db: any,
         args: [body.is_active ? 1 : 0, ruleId],
       });
       return res.status(200).json({ message: 'Rule updated' });
+    }
+
+    // GET /reporting/facilities/{facilityId}/pdf-data — Generate comprehensive report data for PDF
+    if (path[0] === 'facilities' && path[2] === 'pdf-data' && req.method === 'GET') {
+      const facilityId = parseInt(path[1], 10);
+      if (!facilityId) return res.status(400).json({ error: 'Invalid facility ID' });
+
+      // Gather all data needed for the report
+      const facility = await db.execute({ sql: 'SELECT * FROM facilities WHERE id = ?', args: [facilityId] });
+      const facilityData = (facility.rows as any[])[0] || {};
+
+      const score = await calculateComplianceScore(db, facilityId);
+      const ruleResults = await evaluateComplianceRules(db, facilityId);
+      const risks = await calculateRiskScores(db, facilityId);
+
+      // SOP status breakdown
+      const sopStatus = await db.execute({
+        sql: `SELECT sd.sop_code, sd.title, sd.category, sd.priority, sfs.status, sfs.last_reviewed
+              FROM sop_documents sd
+              LEFT JOIN sop_facility_status sfs ON sd.id = sfs.sop_id AND sfs.facility_id = ?
+              ORDER BY sd.category, sd.sop_code`,
+        args: [facilityId],
+      });
+
+      // Recent audit findings
+      const findings = await db.execute({
+        sql: `SELECT af.*, aq.question_code, aq.question_text, am.code as module_code, am.name as module_name
+              FROM audit_findings af
+              JOIN audit_questions_v2 aq ON af.question_id = aq.id
+              JOIN audit_modules am ON aq.module_id = am.id
+              WHERE af.facility_id = ? AND af.status = 'open'
+              ORDER BY CASE af.severity WHEN 'critical' THEN 1 WHEN 'major' THEN 2 ELSE 3 END`,
+        args: [facilityId],
+      });
+
+      // Open CAPAs
+      const capas = await db.execute({
+        sql: `SELECT ca.*, n.finding_category, n.severity as nc_severity
+              FROM corrective_actions ca
+              JOIN nonconformances n ON ca.nonconformance_id = n.id
+              WHERE ca.status IN ('open', 'in_progress')
+              ORDER BY ca.target_completion_date`,
+        args: [],
+      });
+
+      // Training compliance
+      const trainingStatus = await db.execute({
+        sql: `SELECT treq.title, treq.training_type, treq.frequency_days, treq.is_required,
+              (SELECT COUNT(DISTINCT tr.user_id) FROM training_records tr WHERE tr.training_type = treq.training_type AND tr.training_date >= date('now', '-' || treq.frequency_days || ' days')) as trained,
+              (SELECT COUNT(*) FROM users WHERE is_active = 1) as total_workers
+              FROM training_requirements treq
+              WHERE treq.is_required = 1
+              ORDER BY treq.title`,
+        args: [],
+      });
+
+      // Assessment history (last 6)
+      const history = await db.execute({
+        sql: `SELECT * FROM compliance_assessments WHERE facility_id = ? ORDER BY assessment_date DESC LIMIT 6`,
+        args: [facilityId],
+      });
+
+      const avgRisk = risks.length > 0 ? Math.round(risks.reduce((s: number, r: any) => s + r.risk_score, 0) / risks.length) : 0;
+      const facilityRiskLevel = avgRisk >= 75 ? 'critical' : avgRisk >= 50 ? 'high' : avgRisk >= 25 ? 'medium' : 'low';
+
+      return res.status(200).json({
+        report_title: `Compliance Assessment Report — ${facilityData.name || 'Facility'}`,
+        report_date: new Date().toISOString(),
+        facility: facilityData,
+        executive_summary: {
+          overall_score: score.overall_score,
+          overall_grade: score.overall_grade,
+          risk_score: avgRisk,
+          risk_level: facilityRiskLevel,
+          sop_readiness_pct: score.sop_readiness_pct,
+          checklist_pct: score.checklist_submissions_pct,
+          audit_pct: score.audit_coverage_pct,
+          rules_passed: ruleResults.summary.passed,
+          rules_failed: ruleResults.summary.failed,
+          rules_total: ruleResults.summary.total,
+          critical_findings: score.critical_findings,
+          major_findings: score.major_findings,
+          minor_findings: score.minor_findings,
+        },
+        module_scores: score.module_scores,
+        module_risks: risks,
+        rules_results: ruleResults.results,
+        sop_status: (sopStatus.rows as any[]) || [],
+        open_findings: (findings.rows as any[]) || [],
+        open_capas: (capas.rows as any[]) || [],
+        training_compliance: (trainingStatus.rows as any[]) || [],
+        assessment_history: (history.rows as any[]) || [],
+      });
     }
 
     return res.status(404).json({ error: 'Not found' });
@@ -3469,6 +3863,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // REPORTING & MONITORING ROUTES
     if (pathArray[0] === 'reporting') {
       return await handleReporting(req, res, db, userId, pathArray.slice(1));
+    }
+
+    // TRAINING ROUTES
+    if (pathArray[0] === 'training') {
+      return await handleTraining(req, res, db, userId, pathArray.slice(1));
+    }
+
+    // NOTIFICATION ROUTES
+    if (pathArray[0] === 'notifications') {
+      return await handleNotifications(req, res, db, userId, pathArray.slice(1));
     }
 
     // SUPPLIERS ROUTES

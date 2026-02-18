@@ -656,6 +656,73 @@ export async function initDb() {
       recommendations TEXT,
       calculated_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (facility_id) REFERENCES facilities(id)
+    )`,
+    // ====================================================================
+    // PHASE 5: Training & Certification Module + Notifications
+    // ====================================================================
+    `CREATE TABLE IF NOT EXISTS training_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      facility_id INTEGER,
+      training_type TEXT NOT NULL,
+      training_title TEXT NOT NULL,
+      description TEXT,
+      trainer_name TEXT,
+      training_date TEXT NOT NULL,
+      expiry_date TEXT,
+      hours REAL DEFAULT 0,
+      score REAL,
+      status TEXT DEFAULT 'completed',
+      certificate_file TEXT,
+      module_code TEXT,
+      notes TEXT,
+      created_by INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id),
+      FOREIGN KEY (created_by) REFERENCES users(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS training_requirements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      description TEXT,
+      training_type TEXT NOT NULL,
+      frequency_days INTEGER,
+      is_required INTEGER DEFAULT 1,
+      module_code TEXT,
+      role TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS worker_certifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      cert_type TEXT NOT NULL,
+      cert_name TEXT NOT NULL,
+      issuing_body TEXT,
+      cert_number TEXT,
+      issue_date TEXT NOT NULL,
+      expiry_date TEXT,
+      status TEXT DEFAULT 'active',
+      cert_file TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      facility_id INTEGER,
+      notification_type TEXT NOT NULL,
+      severity TEXT DEFAULT 'info',
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id INTEGER,
+      is_read INTEGER DEFAULT 0,
+      is_dismissed INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id)
     )`
   ];
 
@@ -923,6 +990,8 @@ async function seedDb() {
     await seedPhase3(db);
     // Run Phase 4 seeds (compliance rules)
     await seedPhase4(db);
+    // Run Phase 5 seeds (training requirements, notifications)
+    await seedPhase5(db);
     seedData = true;
     return;
   }
@@ -1152,6 +1221,7 @@ async function seedDb() {
   await seedPhase1(db);
   await seedPhase3(db);
   await seedPhase4(db);
+  await seedPhase5(db);
 
   seedData = true;
 }
@@ -1974,6 +2044,43 @@ async function seedPhase4(db: ReturnType<typeof createClient>) {
     await db.execute({
       sql: `INSERT OR IGNORE INTO compliance_rules (rule_code, rule_name, description, rule_type, entity_type, condition_json, severity, module_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [rule.code, rule.name, rule.desc, rule.type, rule.entity, rule.condition, rule.severity, rule.module],
+    });
+  }
+}
+
+async function seedPhase5(db: ReturnType<typeof createClient>) {
+  // ====================================================================
+  // PHASE 5: Seed training requirements
+  // ====================================================================
+
+  // Check if training requirements already exist
+  const existingReqsCheck = await db.execute({
+    sql: 'SELECT COUNT(*) as cnt FROM training_requirements',
+    args: [],
+  });
+  if ((existingReqsCheck.rows[0] as any).cnt > 0) {
+    return; // Already seeded
+  }
+
+  const trainingReqs = [
+    { title: 'Food Safety Fundamentals', desc: 'Basic food safety principles and practices', type: 'food_safety', freq: 365, required: 1, module: 'M1', role: null },
+    { title: 'HACCP Plan Training', desc: 'Understanding and implementing HACCP plans', type: 'haccp', freq: 365, required: 1, module: 'M6', role: null },
+    { title: 'Sanitation & Hygiene', desc: 'Proper cleaning and sanitization procedures', type: 'sanitation', freq: 180, required: 1, module: 'M5', role: null },
+    { title: 'Chemical Handling Safety', desc: 'Safe handling, storage, and application of chemicals', type: 'chemical_safety', freq: 365, required: 1, module: 'M2', role: null },
+    { title: 'Allergen Control', desc: 'Allergen identification and cross-contact prevention', type: 'allergen', freq: 365, required: 1, module: 'M7', role: null },
+    { title: 'Pest Control Awareness', desc: 'IPM principles and pest identification', type: 'pest_control', freq: 365, required: 1, module: 'M9', role: null },
+    { title: 'GMP Training', desc: 'Good Manufacturing Practices for food facilities', type: 'gmp', freq: 365, required: 1, module: 'M5', role: null },
+    { title: 'Emergency Procedures', desc: 'Emergency response and evacuation protocols', type: 'emergency', freq: 365, required: 1, module: null, role: null },
+    { title: 'Harvest Hygiene', desc: 'Pre-harvest and harvest sanitation practices', type: 'harvest', freq: 180, required: 1, module: 'M4', role: null },
+    { title: 'Supervisor Food Safety', desc: 'Advanced food safety for supervisory staff', type: 'supervisor_fs', freq: 365, required: 1, module: null, role: 'supervisor' },
+    { title: 'FSQA Manager Certification', desc: 'PCQI or equivalent food safety certification', type: 'fsqa_cert', freq: 730, required: 1, module: null, role: 'fsqa' },
+    { title: 'Internal Auditor Training', desc: 'Internal audit methodology and practice', type: 'auditor', freq: 365, required: 0, module: null, role: 'fsqa' },
+  ];
+
+  for (const req of trainingReqs) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO training_requirements (title, description, training_type, frequency_days, is_required, module_code, role) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [req.title, req.desc, req.type, req.freq, req.required, req.module, req.role],
     });
   }
 }

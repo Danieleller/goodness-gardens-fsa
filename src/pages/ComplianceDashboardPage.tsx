@@ -203,25 +203,25 @@ export function ComplianceDashboardPage() {
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-white">
       {/* Header */}
       <div className="bg-white border-b border-green-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Shield className="w-8 h-8 text-green-700" />
-              <h1 className="text-3xl font-bold text-green-900">Compliance Dashboard</h1>
+              <Shield className="w-7 h-7 sm:w-8 sm:h-8 text-green-700" />
+              <h1 className="text-2xl sm:text-3xl font-bold text-green-900">Compliance Dashboard</h1>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
               <button
                 onClick={handleRunAssessment}
                 disabled={!selectedFacilityId || runningAssessment}
-                className="px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-3 py-2 text-sm sm:px-4 sm:text-base bg-green-700 text-white rounded-lg hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
               >
                 {runningAssessment ? 'Running...' : 'Run Assessment'}
               </button>
-              <div className="relative">
+              <div className="relative flex-1 sm:flex-initial">
                 <select
                   value={selectedFacilityId}
                   onChange={(e) => setSelectedFacilityId(e.target.value)}
-                  className="appearance-none px-4 py-2 pr-10 bg-white border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 cursor-pointer"
+                  className="appearance-none w-full px-3 py-2 pr-10 text-sm sm:px-4 sm:text-base bg-white border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 cursor-pointer"
                 >
                   <option value="">Select a facility</option>
                   {facilities.map((f) => (
@@ -245,7 +245,7 @@ export function ComplianceDashboardPage() {
       )}
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {loading && (
           <div className="flex items-center justify-center py-16">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
