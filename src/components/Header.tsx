@@ -106,7 +106,9 @@ export function Header() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [enabledModules, setEnabledModules] = useState<Set<string>>(new Set());
+  const [enabledModules, setEnabledModules] = useState<Set<string>>(
+    () => new Set(allNavGroups.flatMap(g => g.items.filter(i => i.moduleKey).map(i => i.moduleKey!)))
+  );
   const [recentPages, setRecentPages] = useState<{ path: string; label: string; time: number }[]>([]);
   const [recentOpen, setRecentOpen] = useState(false);
   const { user, logout } = useAuthStore();
