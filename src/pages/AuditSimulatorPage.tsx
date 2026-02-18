@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Shield,
   Play,
@@ -9,8 +10,11 @@ import {
   Loader2,
   ChevronRight,
   CheckCircle2,
+  FileWarning,
+  PlusCircle,
+  ExternalLink,
 } from 'lucide-react';
-import { auditAPI, facilitiesAPI } from '@/api';
+import { auditAPI, facilitiesAPI, auditFindingsAPI } from '@/api';
 
 interface Facility {
   id: string;
@@ -80,6 +84,24 @@ interface PastSimulation {
   grade: string;
 }
 
+interface Finding {
+  id: number;
+  simulation_id: number;
+  question_id: number;
+  facility_id: number;
+  finding_type: string;
+  severity: string;
+  description: string;
+  evidence_notes: string;
+  required_sop_code: string;
+  is_auto_fail: number;
+  status: string;
+  question_code: string;
+  question_text: string;
+  module_name: string;
+  created_at: string;
+}
+
 type PageState = 'setup' | 'in-progress' | 'results';
 
 const getGradeColor = (grade: string): string => {
@@ -134,6 +156,8 @@ export function AuditSimulatorPage() {
     simulation: SimulationResult;
     modules: ModuleScore[];
   } | null>(null);
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [findingsLoading, setFindingsLoading] = useState(false);
 
   // Load facilities on mount
   useEffect(() => {
@@ -225,6 +249,14 @@ export function AuditSimulatorPage() {
       );
       setResults(scoreData.data);
       setPageState('results');
+
+      // Fetch auto-generated findings
+      try {
+        const findingsData = await auditFindingsAPI.getAll({ simulation_id: currentSimulation.id });
+        setFindings(findingsData.data.findings || []);
+      } catch (err) {
+        console.error('Error loading findings:', err);
+      }
     } catch (error) {
       console.error('Error saving responses:', error);
     } finally {
@@ -237,6 +269,7 @@ export function AuditSimulatorPage() {
     setCurrentSimulation(null);
     setResponses({});
     setResults(null);
+    setFindings([]);
   };
 
   const calculateRunningScore = (): { earned: number; total: number } => {
@@ -254,6 +287,38 @@ export function AuditSimulatorPage() {
     });
 
     return { earned, total };
+  };
+
+  const handleCreateCapa = async (findingId: number) => {
+    try {
+      await auditFindingsAPI.createCapa(findingId);
+      // Refresh findings to update status
+      if (currentSimulation) {
+        const findingsData = await auditFindingsAPI.getAll({ simulation_id: currentSimulation.id });
+        setFindings(findingsData.data.findings || []);
+      }
+    } catch (error) {
+      console.error('Error creating CAPA:', error);
+    }
+  };
+
+  const handleCreateAllCapas = async () => {
+    setFindingsLoading(true);
+    try {
+      const openFindings = findings.filter(f => f.status === 'open');
+      for (const finding of openFindings) {
+        await auditFindingsAPI.createCapa(finding.id);
+      }
+      // Refresh findings
+      if (currentSimulation) {
+        const findingsData = await auditFindingsAPI.getAll({ simulation_id: currentSimulation.id });
+        setFindings(findingsData.data.findings || []);
+      }
+    } catch (error) {
+      console.error('Error creating CAPAs:', error);
+    } finally {
+      setFindingsLoading(false);
+    }
   };
 
   if (loading && pageState === 'setup' && facilities.length === 0) {
@@ -784,6 +849,115 @@ export function AuditSimulatorPage() {
               </table>
             </div>
           </div>
+
+          {/* Audit Findings */}
+          {findings.length > 0 && (
+            <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                  <FileWarning className="w-6 h-6 text-orange-500" />
+                  Audit Findings ({findings.length})
+                </h3>
+                {findings.some(f => f.status === 'open') && (
+                  <button
+                    onClick={handleCreateAllCapas}
+                    disabled={findingsLoading}
+                    className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 px-4 rounded-lg transition-colors text-sm"
+                  >
+                    {findingsLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <PlusCircle className="w-4 h-4" />
+                    )}
+                    Create All CAPAs
+                  </button>
+                )}
+              </div>
+
+              {/* Summary badges */}
+              <div className="flex gap-3 mb-6">
+                {(['critical', 'major', 'minor'] as const).map(sev => {
+                  const count = findings.filter(f => f.severity === sev).length;
+                  if (count === 0) return null;
+                  return (
+                    <span key={sev} className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                      sev === 'critical' ? 'bg-red-100 text-red-800' :
+                      sev === 'major' ? 'bg-orange-100 text-orange-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {count} {sev}
+                    </span>
+                  );
+                })}
+              </div>
+
+              {/* Findings table */}
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b-2 border-gray-300">
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Question</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Type</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Severity</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Required SOP</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {findings.map((finding) => (
+                      <tr key={finding.id} className="border-b border-gray-200 hover:bg-orange-50 transition-colors">
+                        <td className="py-4 px-4">
+                          <div className="font-medium text-gray-900 text-sm">{finding.question_code}</div>
+                          <div className="text-xs text-gray-500 max-w-xs truncate">{finding.question_text}</div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className="text-sm text-gray-700 capitalize">{finding.finding_type.replace('_', ' ')}</span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                            finding.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                            finding.severity === 'major' ? 'bg-orange-100 text-orange-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {finding.severity}
+                            {finding.is_auto_fail === 1 && ' ⚠'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-600">{finding.required_sop_code || '—'}</td>
+                        <td className="py-4 px-4">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            finding.status === 'open' ? 'bg-blue-100 text-blue-800' :
+                            finding.status === 'capa_created' ? 'bg-green-100 text-green-800' :
+                            finding.status === 'resolved' ? 'bg-gray-100 text-gray-800' :
+                            'bg-purple-100 text-purple-800'
+                          }`}>
+                            {finding.status === 'capa_created' ? 'CAPA Created' : finding.status}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          {finding.status === 'open' ? (
+                            <button
+                              onClick={() => handleCreateCapa(finding.id)}
+                              className="flex items-center gap-1 text-orange-600 hover:text-orange-800 font-medium text-sm transition-colors"
+                            >
+                              <PlusCircle className="w-4 h-4" />
+                              Create CAPA
+                            </button>
+                          ) : finding.status === 'capa_created' ? (
+                            <Link to="/corrective-actions" className="flex items-center gap-1 text-green-600 hover:text-green-800 text-sm">
+                              <ExternalLink className="w-4 h-4" />
+                              View
+                            </Link>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex gap-4">

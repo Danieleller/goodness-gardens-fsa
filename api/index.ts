@@ -1550,17 +1550,51 @@ async function handleChecklistSubmissions(req: VercelRequest, res: VercelRespons
 }
 
 async function handleSops(req: VercelRequest, res: VercelResponse, db: any, userId: number, id?: string, action?: string) {
+  // --- Tags list (all distinct tags) ---
+  if (id === 'tags' && !action) {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const result = await db.execute({ sql: 'SELECT tag, COUNT(*) as count FROM sop_tags GROUP BY tag ORDER BY count DESC, tag', args: [] });
+    return res.status(200).json({ tags: result.rows });
+  }
+  // --- File download ---
+  if (id === 'files' && action) {
+    const fileId = Number(action);
+    if (req.method === 'GET') {
+      const file = await db.execute({ sql: 'SELECT * FROM sop_files WHERE id = ?', args: [fileId] });
+      if (file.rows.length === 0) return res.status(404).json({ error: 'File not found' });
+      return res.status(200).json({ file: file.rows[0] });
+    }
+    if (req.method === 'DELETE') {
+      const roleCheck = await requireRole(userId, db, ['admin']);
+      if (!roleCheck.allowed) return res.status(403).json({ error: 'Admin access required' });
+      await db.execute({ sql: 'DELETE FROM sop_files WHERE id = ?', args: [fileId] });
+      return res.status(200).json({ message: 'File deleted' });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
   if (!id) {
     if (req.method === 'GET') {
-      const { category, status, priority } = req.query;
-      let sql = 'SELECT * FROM sop_documents WHERE 1=1';
+      const { category, status, priority, tag } = req.query;
+      let sql = 'SELECT sd.* FROM sop_documents sd WHERE 1=1';
       const args: any[] = [];
-      if (category) { sql += ' AND category = ?'; args.push(category); }
-      if (status) { sql += ' AND status = ?'; args.push(status); }
-      if (priority) { sql += ' AND priority = ?'; args.push(priority); }
-      sql += ' ORDER BY code';
+      if (category) { sql += ' AND sd.category = ?'; args.push(category); }
+      if (status) { sql += ' AND sd.status = ?'; args.push(status); }
+      if (priority) { sql += ' AND sd.priority = ?'; args.push(priority); }
+      if (tag) { sql += ' AND sd.id IN (SELECT sop_id FROM sop_tags WHERE tag = ?)'; args.push(tag); }
+      sql += ' ORDER BY sd.code';
       const result = await db.execute({ sql, args });
-      return res.status(200).json({ sops: result.rows });
+      // Attach tags to each SOP
+      const sopIds = result.rows.map((r: any) => r.id);
+      let tagsMap: Record<number, string[]> = {};
+      if (sopIds.length > 0) {
+        const allTags = await db.execute({ sql: `SELECT sop_id, tag FROM sop_tags WHERE sop_id IN (${sopIds.join(',')})`, args: [] });
+        for (const t of allTags.rows as any[]) {
+          if (!tagsMap[t.sop_id]) tagsMap[t.sop_id] = [];
+          tagsMap[t.sop_id].push(t.tag);
+        }
+      }
+      const sops = result.rows.map((r: any) => ({ ...r, tags: tagsMap[r.id] || [] }));
+      return res.status(200).json({ sops });
     }
     if (req.method === 'POST') {
       const isAdmin = await requireAdmin(userId, db);
@@ -1570,11 +1604,14 @@ async function handleSops(req: VercelRequest, res: VercelResponse, db: any, user
         sql: 'INSERT INTO sop_documents (code, title, category, description, applies_to, primus_ref, nop_ref, owner, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         args: [code, title, category, description, applies_to, primus_ref, nop_ref, owner, priority || 'MEDIUM'],
       });
-      return res.status(201).json({ id: Number(result.lastInsertRowid), message: 'SOP created' });
+      const newId = Number(result.lastInsertRowid);
+      await upsertSearchIndex(db, 'document', newId, `${code} - ${title}`, category, null, null, `/sops`);
+      return res.status(201).json({ id: newId, message: 'SOP created' });
     }
     return res.status(405).json({ error: 'Method not allowed' });
   }
   const sopId = Number(id);
+  // --- Status update ---
   if (action === 'status') {
     if (req.method === 'PUT') {
       const isAdmin = await requireAdmin(userId, db);
@@ -1590,13 +1627,102 @@ async function handleSops(req: VercelRequest, res: VercelResponse, db: any, user
     }
     return res.status(405).json({ error: 'Method not allowed' });
   }
+  // --- Versions ---
+  if (action === 'versions') {
+    if (req.method === 'GET') {
+      const versions = await db.execute({
+        sql: `SELECT sv.*, u.first_name || ' ' || u.last_name as uploader_name,
+              sf.id as file_id, sf.file_name, sf.content_type, sf.file_size
+              FROM sop_versions sv
+              LEFT JOIN users u ON sv.uploaded_by = u.id
+              LEFT JOIN sop_files sf ON sf.version_id = sv.id
+              WHERE sv.sop_id = ? ORDER BY sv.version_number DESC`,
+        args: [sopId],
+      });
+      return res.status(200).json({ versions: versions.rows });
+    }
+    if (req.method === 'POST') {
+      const roleCheck = await requireRole(userId, db, ['fsqa', 'management', 'admin']);
+      if (!roleCheck.allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+      const { change_notes, file_name, file_data, content_type } = req.body;
+      // Get current version number
+      const currentSop = await db.execute({ sql: 'SELECT current_version FROM sop_documents WHERE id = ?', args: [sopId] });
+      if (currentSop.rows.length === 0) return res.status(404).json({ error: 'SOP not found' });
+      const newVersion = ((currentSop.rows[0] as any).current_version || 0) + 1;
+      // Insert version record
+      const vResult = await db.execute({
+        sql: 'INSERT INTO sop_versions (sop_id, version_number, change_notes, uploaded_by) VALUES (?, ?, ?, ?)',
+        args: [sopId, newVersion, change_notes || null, userId],
+      });
+      const versionId = Number(vResult.lastInsertRowid);
+      // Insert file if provided
+      let fileId = null;
+      if (file_name && file_data && content_type) {
+        const fileSize = Math.round((file_data.length * 3) / 4); // approx base64 decode size
+        const fResult = await db.execute({
+          sql: 'INSERT INTO sop_files (sop_id, version_id, file_name, file_data, content_type, file_size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [sopId, versionId, file_name, file_data, content_type, fileSize, userId],
+        });
+        fileId = Number(fResult.lastInsertRowid);
+      }
+      // Bump version on SOP
+      await db.execute({ sql: 'UPDATE sop_documents SET current_version = ?, updated_at = datetime(\'now\') WHERE id = ?', args: [newVersion, sopId] });
+      await logAuditAction(db, userId, 'create', 'sop_version', versionId, null, { sop_id: sopId, version: newVersion });
+      return res.status(201).json({ version_id: versionId, file_id: fileId, version_number: newVersion });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  // --- Tags ---
+  if (action === 'tags') {
+    if (req.method === 'POST') {
+      const roleCheck = await requireRole(userId, db, ['fsqa', 'management', 'admin']);
+      if (!roleCheck.allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+      const { tags } = req.body;
+      if (!Array.isArray(tags)) return res.status(400).json({ error: 'tags array required' });
+      for (const tag of tags) {
+        try {
+          await db.execute({ sql: 'INSERT OR IGNORE INTO sop_tags (sop_id, tag) VALUES (?, ?)', args: [sopId, tag.toLowerCase().trim()] });
+        } catch (_e) { /* ignore */ }
+      }
+      return res.status(200).json({ message: 'Tags added' });
+    }
+    if (req.method === 'DELETE') {
+      const roleCheck = await requireRole(userId, db, ['fsqa', 'management', 'admin']);
+      if (!roleCheck.allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+      // Tag is passed as query param since action slot is used by 'tags'
+      const { tag } = req.query;
+      if (!tag) return res.status(400).json({ error: 'tag query parameter required' });
+      await db.execute({ sql: 'DELETE FROM sop_tags WHERE sop_id = ? AND tag = ?', args: [sopId, tag] });
+      return res.status(200).json({ message: 'Tag removed' });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  // --- Audit coverage ---
+  if (action === 'audit-coverage') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const sop = await db.execute({ sql: 'SELECT code FROM sop_documents WHERE id = ?', args: [sopId] });
+    if (sop.rows.length === 0) return res.status(404).json({ error: 'SOP not found' });
+    const sopCode = (sop.rows[0] as any).code;
+    const questions = await db.execute({
+      sql: `SELECT aq.id, aq.question_code, aq.question_text, aq.points, aq.is_auto_fail, aq.required_sop,
+            am.code as module_code, am.name as module_name
+            FROM audit_questions_v2 aq
+            JOIN audit_modules am ON aq.module_id = am.id
+            WHERE aq.required_sop LIKE ? ORDER BY aq.question_code`,
+      args: [`%${sopCode}%`],
+    });
+    return res.status(200).json({ questions: questions.rows, sop_code: sopCode });
+  }
+  // --- GET single SOP ---
   if (req.method === 'GET') {
     const sop = await db.execute({ sql: 'SELECT * FROM sop_documents WHERE id = ?', args: [sopId] });
     if (sop.rows.length === 0) return res.status(404).json({ error: 'SOP not found' });
     const facilityStatuses = await db.execute({ sql: 'SELECT sfs.*, f.name as facility_name, f.code as facility_code FROM sop_facility_status sfs JOIN facilities f ON sfs.facility_id = f.id WHERE sfs.sop_id = ?', args: [sopId] });
     const versions = await db.execute({ sql: 'SELECT * FROM sop_versions WHERE sop_id = ? ORDER BY version_number DESC', args: [sopId] });
-    return res.status(200).json({ sop: sop.rows[0], facility_statuses: facilityStatuses.rows, versions: versions.rows });
+    const tags = await db.execute({ sql: 'SELECT tag FROM sop_tags WHERE sop_id = ?', args: [sopId] });
+    return res.status(200).json({ sop: sop.rows[0], facility_statuses: facilityStatuses.rows, versions: versions.rows, tags: tags.rows.map((t: any) => t.tag) });
   }
+  // --- PUT update SOP ---
   if (req.method === 'PUT') {
     const isAdmin = await requireAdmin(userId, db);
     if (!isAdmin) return res.status(403).json({ error: 'Admin access required' });
@@ -1747,7 +1873,32 @@ async function handleAuditSimulations(req: VercelRequest, res: VercelResponse, d
     const hasAutoFail = autoFails.rows.length > 0;
     let grade = pct >= 97 ? 'A+' : pct >= 92 ? 'A' : pct >= 85 ? 'B' : pct >= 75 ? 'C' : 'D';
     if (hasAutoFail) grade = 'FAIL';
-    await db.execute({ sql: 'UPDATE audit_simulations SET earned_points = ?, score_pct = ?, has_auto_fail = ?, grade = ? WHERE id = ?', args: [totalEarned, pct, hasAutoFail ? 1 : 0, grade, simId] });
+    await db.execute({ sql: 'UPDATE audit_simulations SET earned_points = ?, score_pct = ?, has_auto_fail = ?, grade = ?, status = \'completed\' WHERE id = ?', args: [totalEarned, pct, hasAutoFail ? 1 : 0, grade, simId] });
+    // --- Phase 2: Auto-generate audit findings for deficient questions ---
+    try {
+      const deficient = await db.execute({
+        sql: `SELECT ar.question_id, ar.score, ar.notes as response_notes, aq.question_code, aq.question_text, aq.points as max_points, aq.is_auto_fail, aq.required_sop, aq.responsible_role
+              FROM audit_responses ar
+              JOIN audit_questions_v2 aq ON ar.question_id = aq.id
+              WHERE ar.simulation_id = ? AND ar.score < aq.points`,
+        args: [simId],
+      });
+      // Only generate if findings don't already exist for this simulation
+      const existingFindings = await db.execute({ sql: 'SELECT COUNT(*) as count FROM audit_findings WHERE simulation_id = ?', args: [simId] });
+      if ((existingFindings.rows[0] as any).count === 0 && deficient.rows.length > 0) {
+        for (const q of deficient.rows as any[]) {
+          const isAF = q.is_auto_fail === 1 && q.score === 0;
+          const severity = isAF ? 'critical' : q.score === 0 ? 'major' : 'minor';
+          const findingType = q.score === 0 ? 'non_conformance' : 'observation';
+          const desc = `${q.question_code}: ${q.question_text} — Scored ${q.score}/${q.max_points}`;
+          await db.execute({
+            sql: `INSERT INTO audit_findings (simulation_id, question_id, facility_id, finding_type, severity, description, evidence_notes, required_sop_code, is_auto_fail, status, created_by)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+            args: [simId, q.question_id, simData.facility_id, findingType, severity, desc, q.response_notes || null, q.required_sop || null, isAF ? 1 : 0, userId],
+          });
+        }
+      }
+    } catch (_e) { /* silently fail findings generation */ }
     return res.status(200).json({ simulation: { ...simData, earned_points: totalEarned, score_pct: pct, has_auto_fail: hasAutoFail ? 1 : 0, grade }, modules: moduleScores.rows });
   }
   if (req.method === 'GET') {
@@ -1757,6 +1908,149 @@ async function handleAuditSimulations(req: VercelRequest, res: VercelResponse, d
     return res.status(200).json({ simulation: sim.rows[0], responses: responses.rows });
   }
   return res.status(405).json({ error: 'Method not allowed' });
+}
+
+// ============================================================================
+// PHASE 2: AUDIT FINDINGS + CAPA SUMMARY
+// ============================================================================
+
+async function handleAuditFindings(req: VercelRequest, res: VercelResponse, db: any, userId: number, id?: string, action?: string) {
+  // GET /api/audit/findings/summary
+  if (id === 'summary') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const { facility_id } = req.query;
+    let whereClause = "WHERE af.status = 'open'";
+    const args: any[] = [];
+    if (facility_id) { whereClause += ' AND af.facility_id = ?'; args.push(Number(facility_id)); }
+    const result = await db.execute({
+      sql: `SELECT af.severity, COUNT(*) as count FROM audit_findings af ${whereClause} GROUP BY af.severity`,
+      args,
+    });
+    const totalOpen = await db.execute({ sql: `SELECT COUNT(*) as count FROM audit_findings af ${whereClause}`, args });
+    const withCapa = await db.execute({
+      sql: `SELECT COUNT(*) as count FROM audit_findings af WHERE af.status = 'capa_created'${facility_id ? ' AND af.facility_id = ?' : ''}`,
+      args: facility_id ? [Number(facility_id)] : [],
+    });
+    return res.status(200).json({
+      total_open: (totalOpen.rows[0] as any).count,
+      with_capa: (withCapa.rows[0] as any).count,
+      by_severity: result.rows,
+    });
+  }
+
+  if (!id) {
+    // GET /api/audit/findings?simulation_id=X&facility_id=X&status=X
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const { simulation_id, facility_id, status: filterStatus } = req.query;
+    let sql = `SELECT af.*, aq.question_code, aq.question_text, aq.points as max_points, aq.responsible_role,
+               am.code as module_code, am.name as module_name, f.name as facility_name
+               FROM audit_findings af
+               JOIN audit_questions_v2 aq ON af.question_id = aq.id
+               JOIN audit_modules am ON aq.module_id = am.id
+               JOIN facilities f ON af.facility_id = f.id WHERE 1=1`;
+    const args: any[] = [];
+    if (simulation_id) { sql += ' AND af.simulation_id = ?'; args.push(Number(simulation_id)); }
+    if (facility_id) { sql += ' AND af.facility_id = ?'; args.push(Number(facility_id)); }
+    if (filterStatus) { sql += ' AND af.status = ?'; args.push(filterStatus); }
+    sql += ' ORDER BY CASE af.severity WHEN \'critical\' THEN 1 WHEN \'major\' THEN 2 WHEN \'minor\' THEN 3 END, af.created_at DESC';
+    const result = await db.execute({ sql, args });
+    return res.status(200).json({ findings: result.rows });
+  }
+
+  const findingId = Number(id);
+
+  // POST /api/audit/findings/{id}/create-capa
+  if (action === 'create-capa') {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const roleCheck = await requireRole(userId, db, ['fsqa', 'management', 'admin']);
+    if (!roleCheck.allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+
+    const finding = await db.execute({ sql: 'SELECT af.*, aq.question_code, aq.question_text, aq.responsible_role FROM audit_findings af JOIN audit_questions_v2 aq ON af.question_id = aq.id WHERE af.id = ?', args: [findingId] });
+    if (finding.rows.length === 0) return res.status(404).json({ error: 'Finding not found' });
+    const f = finding.rows[0] as any;
+    if (f.status !== 'open') return res.status(400).json({ error: 'Finding is not open' });
+
+    // Create nonconformance from finding
+    const ncResult = await db.execute({
+      sql: 'INSERT INTO nonconformances (user_id, finding_date, finding_category, finding_description, severity, affected_area, root_cause) VALUES (?, datetime(\'now\'), ?, ?, ?, ?, ?)',
+      args: [userId, f.finding_type, f.description, f.severity, `Audit Question ${f.question_code}`, 'Identified during audit simulation'],
+    });
+    const ncId = Number(ncResult.lastInsertRowid);
+
+    // Calculate due date based on severity
+    const dueDays = f.severity === 'critical' ? 7 : f.severity === 'major' ? 30 : 90;
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + dueDays);
+    const dueDateStr = dueDate.toISOString().split('T')[0];
+
+    // Create CAPA linked to finding
+    const capaResult = await db.execute({
+      sql: `INSERT INTO corrective_actions (user_id, nonconformance_id, action_description, responsible_party, target_completion_date, status, audit_finding_id, facility_id, priority, due_date_source)
+            VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, 'auto')`,
+      args: [userId, ncId, `Address finding: ${f.question_code} - ${f.question_text}`, f.responsible_role || 'FSQA Manager', dueDateStr, findingId, f.facility_id, f.severity],
+    });
+
+    // Update finding status
+    await db.execute({ sql: "UPDATE audit_findings SET status = 'capa_created' WHERE id = ?", args: [findingId] });
+
+    return res.status(201).json({ capa_id: Number(capaResult.lastInsertRowid), nonconformance_id: ncId, due_date: dueDateStr });
+  }
+
+  // PUT /api/audit/findings/{id} — Update status/resolution
+  if (req.method === 'PUT') {
+    const roleCheck = await requireRole(userId, db, ['fsqa', 'management', 'admin']);
+    if (!roleCheck.allowed) return res.status(403).json({ error: 'Insufficient permissions' });
+    const { status: newStatus, resolution_notes } = req.body;
+    const validStatuses = ['open', 'capa_created', 'resolved', 'accepted_risk'];
+    if (newStatus && !validStatuses.includes(newStatus)) return res.status(400).json({ error: 'Invalid status' });
+    const updates: string[] = [];
+    const args: any[] = [];
+    if (newStatus) { updates.push('status = ?'); args.push(newStatus); }
+    if (resolution_notes !== undefined) { updates.push('resolution_notes = ?'); args.push(resolution_notes); }
+    if (newStatus === 'resolved' || newStatus === 'accepted_risk') {
+      updates.push('resolved_by = ?', "resolved_at = datetime('now')");
+      args.push(userId);
+    }
+    if (updates.length === 0) return res.status(400).json({ error: 'No updates provided' });
+    args.push(findingId);
+    await db.execute({ sql: `UPDATE audit_findings SET ${updates.join(', ')} WHERE id = ?`, args });
+    return res.status(200).json({ message: 'Finding updated' });
+  }
+
+  // GET single finding
+  if (req.method === 'GET') {
+    const result = await db.execute({
+      sql: `SELECT af.*, aq.question_code, aq.question_text, aq.points as max_points, aq.responsible_role,
+            am.code as module_code, am.name as module_name, f.name as facility_name
+            FROM audit_findings af
+            JOIN audit_questions_v2 aq ON af.question_id = aq.id
+            JOIN audit_modules am ON aq.module_id = am.id
+            JOIN facilities f ON af.facility_id = f.id WHERE af.id = ?`,
+      args: [findingId],
+    });
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Finding not found' });
+    return res.status(200).json({ finding: result.rows[0] });
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+
+async function handleCapaSummary(req: VercelRequest, res: VercelResponse, db: any, userId: number) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const totalOpen = await db.execute({ sql: "SELECT COUNT(*) as count FROM corrective_actions WHERE status = 'open'", args: [] });
+  const totalOverdue = await db.execute({
+    sql: "SELECT COUNT(*) as count FROM corrective_actions WHERE status = 'open' AND target_completion_date IS NOT NULL AND target_completion_date < date('now')",
+    args: [],
+  });
+  const byPriority = await db.execute({
+    sql: "SELECT COALESCE(priority, 'medium') as priority, COUNT(*) as count FROM corrective_actions WHERE status = 'open' GROUP BY priority",
+    args: [],
+  });
+  return res.status(200).json({
+    total_open: (totalOpen.rows[0] as any).count,
+    total_overdue: (totalOverdue.rows[0] as any).count,
+    by_priority: byPriority.rows,
+  });
 }
 
 async function handleSuppliers(req: VercelRequest, res: VercelResponse, db: any, userId: number, id?: string, action?: string) {
@@ -2301,6 +2595,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // CORRECTIVE ACTIONS ROUTES
     if (pathArray[0] === 'corrective-actions') {
+      if (pathArray[1] === 'summary') {
+        return await handleCapaSummary(req, res, db, userId);
+      }
       if (pathArray[1] === 'nonconformances') {
         return await handleNonconformances(req, res, db, userId, pathArray[2]);
       }
@@ -2365,6 +2662,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       if (pathArray[1] === 'simulations') {
         return await handleAuditSimulations(req, res, db, userId, pathArray[2], pathArray[3]);
+      }
+      if (pathArray[1] === 'findings') {
+        return await handleAuditFindings(req, res, db, userId, pathArray[2], pathArray[3]);
       }
       return res.status(404).json({ error: 'Not found' });
     }

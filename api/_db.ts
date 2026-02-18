@@ -472,6 +472,53 @@ export async function initDb() {
       ip_address TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id)
+    )`,
+    // ====================================================================
+    // PHASE 2: Document Files, Tags, Audit Findings
+    // ====================================================================
+    `CREATE TABLE IF NOT EXISTS sop_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sop_id INTEGER NOT NULL,
+      version_id INTEGER,
+      file_name TEXT NOT NULL,
+      file_data TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      file_size INTEGER DEFAULT 0,
+      uploaded_by INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (sop_id) REFERENCES sop_documents(id),
+      FOREIGN KEY (version_id) REFERENCES sop_versions(id),
+      FOREIGN KEY (uploaded_by) REFERENCES users(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS sop_tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sop_id INTEGER NOT NULL,
+      tag TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (sop_id) REFERENCES sop_documents(id),
+      UNIQUE(sop_id, tag)
+    )`,
+    `CREATE TABLE IF NOT EXISTS audit_findings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      simulation_id INTEGER NOT NULL,
+      question_id INTEGER NOT NULL,
+      facility_id INTEGER NOT NULL,
+      finding_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      description TEXT NOT NULL,
+      evidence_notes TEXT,
+      required_sop_code TEXT,
+      is_auto_fail INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'open',
+      resolved_by INTEGER,
+      resolved_at TEXT,
+      resolution_notes TEXT,
+      created_by INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (simulation_id) REFERENCES audit_simulations(id),
+      FOREIGN KEY (question_id) REFERENCES audit_questions_v2(id),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id),
+      FOREIGN KEY (created_by) REFERENCES users(id)
     )`
   ];
 
@@ -1077,5 +1124,16 @@ async function seedPhase1(db: ReturnType<typeof createClient>) {
         args: [s.program_type, s.prefix],
       });
     } catch (_e) { /* ignore duplicates */ }
+  }
+
+  // --- Phase 2: Extend corrective_actions with audit_finding_id, facility_id, priority ---
+  const phase2Migrations = [
+    "ALTER TABLE corrective_actions ADD COLUMN audit_finding_id INTEGER",
+    "ALTER TABLE corrective_actions ADD COLUMN facility_id INTEGER",
+    "ALTER TABLE corrective_actions ADD COLUMN priority TEXT DEFAULT 'medium'",
+    "ALTER TABLE corrective_actions ADD COLUMN due_date_source TEXT DEFAULT 'manual'",
+  ];
+  for (const sql of phase2Migrations) {
+    try { await db.execute(sql); } catch (_e) { /* column already exists */ }
   }
 }

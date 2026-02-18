@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import {
   ChevronLeft, ChevronRight, AlertTriangle, Clock, Shield, FileText,
   ClipboardCheck, BarChart3, Building2, Truck, Users, Leaf, Download,
-  CalendarDays, CircleAlert, BadgeCheck, FlaskConical, ChevronDown, ChevronUp
+  CalendarDays, CircleAlert, BadgeCheck, FlaskConical, ChevronDown, ChevronUp, Target
 } from 'lucide-react';
-import { reportsAPI, calendarAPI } from '@/api';
+import { reportsAPI, calendarAPI, auditFindingsAPI, correctiveActionAPI } from '@/api';
 import { useAuthStore } from '@/store';
 
 // ── Calendar types ──
@@ -210,6 +210,8 @@ export function DashboardPage() {
   const [dashboard, setDashboard] = useState<any>(null);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [findingsSummary, setFindingsSummary] = useState<any>(null);
+  const [capaSummary, setCapaSummary] = useState<any>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -248,6 +250,21 @@ export function DashboardPage() {
           });
         });
         setCalendarEvents(events);
+
+        // Fetch findings & CAPA summary for compliance roles
+        const role = useAuthStore.getState().user?.role || '';
+        if (['fsqa', 'management', 'admin'].includes(role)) {
+          try {
+            const [findingsRes, capaRes] = await Promise.all([
+              auditFindingsAPI.summary(),
+              correctiveActionAPI.summary(),
+            ]);
+            setFindingsSummary(findingsRes.data);
+            setCapaSummary(capaRes.data);
+          } catch (err) {
+            console.error('Failed to fetch compliance summary:', err);
+          }
+        }
       } catch (error) {
         console.error('Failed to fetch dashboard:', error);
       } finally {
@@ -370,6 +387,79 @@ export function DashboardPage() {
               )}
             </div>
           </div>
+
+          {/* Audit Findings Summary - compliance roles only */}
+          {findingsSummary && (
+            <div className="bg-white rounded-lg shadow-md border border-gray-200">
+              <div className="flex items-center gap-2 px-4 py-3 bg-orange-50 border-b rounded-t-lg">
+                <Shield size={16} className="text-orange-600" />
+                <h3 className="text-sm font-semibold text-orange-800">Audit Findings</h3>
+              </div>
+              <div className="p-4">
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="text-center p-2 bg-red-50 rounded-lg">
+                    <div className="text-xl font-bold text-red-700">{findingsSummary.by_severity?.critical || 0}</div>
+                    <div className="text-xs text-red-600">Critical</div>
+                  </div>
+                  <div className="text-center p-2 bg-orange-50 rounded-lg">
+                    <div className="text-xl font-bold text-orange-700">{findingsSummary.by_severity?.major || 0}</div>
+                    <div className="text-xs text-orange-600">Major</div>
+                  </div>
+                  <div className="text-center p-2 bg-yellow-50 rounded-lg">
+                    <div className="text-xl font-bold text-yellow-700">{findingsSummary.by_severity?.minor || 0}</div>
+                    <div className="text-xs text-yellow-600">Minor</div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">{findingsSummary.total_open || 0} open findings</span>
+                  <Link to="/audit-simulator" className="text-orange-600 hover:text-orange-800 font-medium text-xs">
+                    View All →
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CAPA Status - compliance roles only */}
+          {capaSummary && (
+            <div className="bg-white rounded-lg shadow-md border border-gray-200">
+              <div className="flex items-center gap-2 px-4 py-3 bg-teal-50 border-b rounded-t-lg">
+                <Target size={16} className="text-teal-600" />
+                <h3 className="text-sm font-semibold text-teal-800">CAPA Status</h3>
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Open CAPAs</span>
+                  <span className="text-sm font-bold text-gray-900">{capaSummary.total_open || 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Overdue</span>
+                  <span className={`text-sm font-bold ${(capaSummary.total_overdue || 0) > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                    {capaSummary.total_overdue || 0}
+                  </span>
+                </div>
+                {capaSummary.by_priority && (
+                  <div className="border-t pt-2 mt-2">
+                    <div className="text-xs text-gray-500 mb-2">By Priority</div>
+                    <div className="flex gap-2">
+                      {capaSummary.by_priority.critical > 0 && (
+                        <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-medium">{capaSummary.by_priority.critical} critical</span>
+                      )}
+                      {capaSummary.by_priority.high > 0 && (
+                        <span className="px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs font-medium">{capaSummary.by_priority.high} high</span>
+                      )}
+                      {capaSummary.by_priority.medium > 0 && (
+                        <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">{capaSummary.by_priority.medium} medium</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <Link to="/corrective-actions" className="block text-center text-teal-600 hover:text-teal-800 font-medium text-xs mt-2">
+                  View All CAPAs →
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, CheckCircle } from 'lucide-react';
-import { correctiveActionAPI } from '@/api';
+import { Plus, Trash2, CheckCircle, Filter, ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { correctiveActionAPI, facilitiesAPI, auditFindingsAPI } from '@/api';
 
 interface Nonconformance {
   id: number;
@@ -19,6 +20,17 @@ interface CorrectiveAction {
   target_completion_date: string;
   actual_completion_date?: string;
   created_at: string;
+  audit_finding_id?: number;
+  facility_id?: number;
+  priority?: string;
+  due_date_source?: string;
+  responsible_party?: string;
+}
+
+interface Facility {
+  id: number;
+  name: string;
+  code: string;
 }
 
 export function CorrectiveActionsPage() {
@@ -27,6 +39,9 @@ export function CorrectiveActionsPage() {
   const [capas, setCapas] = useState<CorrectiveAction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [facilityFilter, setFacilityFilter] = useState<string>('');
+  const [priorityFilter, setPriorityFilter] = useState<string>('');
   const [formData, setFormData] = useState({
     finding_date: '',
     finding_category: 'observation',
@@ -39,6 +54,18 @@ export function CorrectiveActionsPage() {
   useEffect(() => {
     fetchData();
   }, [tab]);
+
+  useEffect(() => {
+    const loadFacilities = async () => {
+      try {
+        const res = await facilitiesAPI.getAll();
+        setFacilities(res.data.facilities || []);
+      } catch (err) {
+        console.error('Failed to load facilities:', err);
+      }
+    };
+    loadFacilities();
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -137,6 +164,34 @@ export function CorrectiveActionsPage() {
         </button>
       </div>
 
+      {/* Filters for CAPAs tab */}
+      {tab === 'capas' && (
+        <div className="flex gap-3 mb-4 items-center">
+          <Filter size={16} className="text-gray-500" />
+          <select
+            value={facilityFilter}
+            onChange={(e) => setFacilityFilter(e.target.value)}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+          >
+            <option value="">All Facilities</option>
+            {facilities.map(f => (
+              <option key={f.id} value={String(f.id)}>{f.name}</option>
+            ))}
+          </select>
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+          >
+            <option value="">All Priorities</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+      )}
+
       {showForm && tab === 'nonconformances' && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-bold mb-4">New Nonconformance</h2>
@@ -219,13 +274,24 @@ export function CorrectiveActionsPage() {
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead className="bg-green-50 border-b">
-            <tr>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Category</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Description</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Severity</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
-            </tr>
+            {tab === 'nonconformances' ? (
+              <tr>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Category</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Description</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Severity</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+              </tr>
+            ) : (
+              <tr>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Due Date</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Description</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Priority</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Source</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+              </tr>
+            )}
           </thead>
           <tbody className="divide-y">
             {tab === 'nonconformances' ? (
@@ -251,11 +317,33 @@ export function CorrectiveActionsPage() {
                 </tr>
               ))
             ) : (
-              capas.map((capa) => (
+              capas
+                .filter(c => !facilityFilter || String(c.facility_id) === facilityFilter)
+                .filter(c => !priorityFilter || c.priority === priorityFilter)
+                .map((capa) => (
                 <tr key={capa.id} className="hover:bg-green-50">
                   <td className="px-6 py-4 text-sm text-gray-600">{capa.target_completion_date}</td>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">CAPA #{capa.id}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{capa.action_description.substring(0, 50)}...</td>
+                  <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">{capa.action_description}</td>
+                  <td className="px-6 py-4 text-sm">
+                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                      capa.priority === 'critical' ? 'bg-red-100 text-red-800' :
+                      capa.priority === 'high' ? 'bg-orange-100 text-orange-800' :
+                      capa.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-green-100 text-green-800'
+                    }`}>
+                      {capa.priority || 'medium'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    {capa.audit_finding_id ? (
+                      <Link to="/audit-simulator" className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
+                        <ExternalLink size={14} />
+                        Audit Finding
+                      </Link>
+                    ) : (
+                      <span className="text-gray-500">Manual</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-sm">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       capa.status === 'closed' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
@@ -263,7 +351,7 @@ export function CorrectiveActionsPage() {
                       {capa.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm flex gap-3">
+                  <td className="px-6 py-4 text-sm">
                     <button onClick={() => handleDelete(capa.id)} className="text-red-600 hover:text-red-700">
                       <Trash2 size={18} />
                     </button>

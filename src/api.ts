@@ -65,6 +65,7 @@ export const chemicalAPI = {
 };
 
 export const correctiveActionAPI = {
+  summary: () => api.get('/corrective-actions/summary'),
   nonconformances: {
     getAll: () => api.get('/corrective-actions/nonconformances'),
     getById: (id: number) => api.get(`/corrective-actions/nonconformances/${id}`),
@@ -128,12 +129,24 @@ export const checklistsAPI = {
 };
 
 export const sopsAPI = {
-  getAll: (params?: { category?: string; status?: string; priority?: string }) => api.get('/sops', { params }),
+  getAll: (params?: { category?: string; status?: string; priority?: string; tag?: string }) => api.get('/sops', { params }),
   getById: (id: number) => api.get(`/sops/${id}`),
   create: (data: any) => api.post('/sops', data),
   update: (id: number, data: any) => api.put(`/sops/${id}`, data),
   updateStatus: (id: number, status: string) => api.put(`/sops/${id}/status`, { status }),
   getByFacility: (facilityId: number) => api.get(`/sops/facility/${facilityId}`),
+  // Phase 2: Versions
+  getVersions: (sopId: number) => api.get(`/sops/${sopId}/versions`),
+  createVersion: (sopId: number, data: { change_notes?: string; file_name?: string; file_data?: string; content_type?: string }) =>
+    api.post(`/sops/${sopId}/versions`, data),
+  downloadFile: (fileId: number) => api.get(`/sops/files/${fileId}`),
+  deleteFile: (fileId: number) => api.delete(`/sops/files/${fileId}`),
+  // Phase 2: Tags
+  addTags: (sopId: number, tags: string[]) => api.post(`/sops/${sopId}/tags`, { tags }),
+  removeTag: (sopId: number, tag: string) => api.delete(`/sops/${sopId}/tags`, { params: { tag } }),
+  getAllTags: () => api.get('/sops/tags'),
+  // Phase 2: Audit coverage
+  getAuditCoverage: (sopId: number) => api.get(`/sops/${sopId}/audit-coverage`),
 };
 
 export const gapsAPI = {
@@ -151,6 +164,17 @@ export const auditAPI = {
     saveResponses: (id: number, responses: any[]) => api.post(`/audit/simulations/${id}/responses`, { responses }),
     getScore: (id: number) => api.get(`/audit/simulations/${id}/score`),
   },
+};
+
+export const auditFindingsAPI = {
+  getAll: (params?: { simulation_id?: number; facility_id?: number; status?: string }) =>
+    api.get('/audit/findings', { params }),
+  getById: (id: number) => api.get(`/audit/findings/${id}`),
+  update: (id: number, data: { status?: string; resolution_notes?: string }) =>
+    api.put(`/audit/findings/${id}`, data),
+  createCapa: (id: number) => api.post(`/audit/findings/${id}/create-capa`),
+  summary: (facilityId?: number) =>
+    api.get('/audit/findings/summary', { params: facilityId ? { facility_id: facilityId } : {} }),
 };
 
 export const suppliersAPI = {
