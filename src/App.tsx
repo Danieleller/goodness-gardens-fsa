@@ -93,6 +93,10 @@ export default function App() {
         <Route path="/admin/modules" element={<AdminProtectedRoute><ModuleConfigPage /></AdminProtectedRoute>} />
         <Route path="/admin/audit" element={<AdminProtectedRoute><AuditLogPage /></AdminProtectedRoute>} />
         <Route path="/audit-checklist" element={<RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}><AuditChecklistPage /></RoleProtectedRoute>} />
+        {/* Redirects for renamed routes */}
+        <Route path="/locations" element={<Navigate to="/facilities" replace />} />
+        <Route path="/location-setup" element={<Navigate to="/facilities" replace />} />
+        <Route path="/users" element={<Navigate to="/admin" replace />} />
         <Route path="/" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
       </Routes>
     </div>

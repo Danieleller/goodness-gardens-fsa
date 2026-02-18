@@ -364,7 +364,7 @@ export function SupplierPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Suppliers List */}
-        <div className="lg:col-span-2">
+        <div className={selectedSupplier ? 'lg:col-span-2' : 'lg:col-span-3'}>
           {showAddForm && (
             <div className="bg-white rounded-lg shadow p-6 mb-6">
               <h2 className="text-xl font-bold mb-4 flex items-center gap-2">

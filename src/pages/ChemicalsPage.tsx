@@ -223,37 +223,57 @@ export function ChemicalsPage() {
           </thead>
           <tbody className="divide-y">
             {tab === 'applications' ? (
-              applications.map((app) => (
-                <tr key={app.id} className="hover:bg-green-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{app.product_name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{app.application_date}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {app.expected_residue_level_ppm && app.mrl_ppm ? (
-                      <span className={app.expected_residue_level_ppm <= app.mrl_ppm ? 'text-green-600' : 'text-red-600'}>
-                        {app.expected_residue_level_ppm <= app.mrl_ppm ? 'Compliant' : 'Non-Compliant'}
-                      </span>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm flex gap-3">
-                    <button onClick={() => handleDelete(app.id)} className="text-red-600 hover:text-red-700">
-                      <Trash2 size={18} />
-                    </button>
+              applications.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center">
+                    <Beaker size={40} className="mx-auto text-gray-300 mb-2" />
+                    <p className="text-gray-500 text-sm">No chemical applications found</p>
+                    <p className="text-gray-400 text-xs mt-1">Click "+ New Record" to log a chemical application</p>
                   </td>
                 </tr>
-              ))
+              ) : (
+                applications.map((app) => (
+                  <tr key={app.id} className="hover:bg-green-50">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{app.product_name}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{app.application_date}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {app.expected_residue_level_ppm && app.mrl_ppm ? (
+                        <span className={app.expected_residue_level_ppm <= app.mrl_ppm ? 'text-green-600' : 'text-red-600'}>
+                          {app.expected_residue_level_ppm <= app.mrl_ppm ? 'Compliant' : 'Non-Compliant'}
+                        </span>
+                      ) : '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm flex gap-3">
+                      <button onClick={() => handleDelete(app.id)} className="text-red-600 hover:text-red-700">
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )
             ) : (
-              storage.map((item) => (
-                <tr key={item.id} className="hover:bg-green-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.product_name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{item.storage_location}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{item.expiration_date || '-'}</td>
-                  <td className="px-6 py-4 text-sm flex gap-3">
-                    <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-700">
-                      <Trash2 size={18} />
-                    </button>
+              storage.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center">
+                    <Beaker size={40} className="mx-auto text-gray-300 mb-2" />
+                    <p className="text-gray-500 text-sm">No chemical storage records found</p>
+                    <p className="text-gray-400 text-xs mt-1">Click "+ New Record" to add a storage entry</p>
                   </td>
                 </tr>
-              ))
+              ) : (
+                storage.map((item) => (
+                  <tr key={item.id} className="hover:bg-green-50">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.product_name}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{item.storage_location}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{item.expiration_date || '-'}</td>
+                    <td className="px-6 py-4 text-sm flex gap-3">
+                      <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-700">
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )
             )}
           </tbody>
         </table>

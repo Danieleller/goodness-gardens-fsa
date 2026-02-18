@@ -1194,6 +1194,120 @@ async function seedDb() {
     checklistIds[checklist.code] = lastId;
   }
 
+  // SEED CHECKLIST ITEMS for each template
+  const checklistItemSeeds: Record<string, { text: string; critical: boolean }[]> = {
+    'GG-CL-001': [
+      { text: 'All food contact surfaces cleaned and sanitized', critical: true },
+      { text: 'Floors swept and mopped, no standing water', critical: false },
+      { text: 'Drains clear and flowing properly', critical: false },
+      { text: 'Walls and ceilings free of condensation/mold', critical: false },
+      { text: 'All equipment properly assembled after cleaning', critical: true },
+      { text: 'Sanitizer concentration at proper levels', critical: true },
+      { text: 'Hand wash stations stocked (soap, paper towels)', critical: true },
+      { text: 'Foot baths/sanitizer mats in place and effective', critical: false },
+      { text: 'No pest activity observed', critical: true },
+      { text: 'Waste bins emptied and clean', critical: false },
+      { text: 'Light shields/covers intact', critical: false },
+      { text: 'No foreign materials on or near food contact surfaces', critical: true },
+      { text: 'Chemical storage area organized and labeled', critical: false },
+      { text: 'PPE available and in good condition', critical: false },
+      { text: 'No off-odors detected in production area', critical: false },
+      { text: 'Cooling units at proper temperature', critical: true },
+      { text: 'Loading dock clean and free of debris', critical: false },
+      { text: 'Air curtains/strip curtains functional', critical: false },
+      { text: 'Employee break room clean', critical: false },
+      { text: 'Pre-op completed and documented before production start', critical: true },
+    ],
+    'GG-CL-017': [
+      { text: 'All production equipment disassembled and deep cleaned', critical: true },
+      { text: 'Conveyor belts removed and cleaned underneath', critical: true },
+      { text: 'All drains dismantled and scrubbed', critical: true },
+      { text: 'Walls washed from ceiling to floor', critical: false },
+      { text: 'Ceiling tiles/panels inspected for damage', critical: false },
+      { text: 'Light fixtures cleaned and shields intact', critical: false },
+      { text: 'Cold storage units defrosted and cleaned', critical: false },
+      { text: 'All gaskets and seals inspected and cleaned', critical: false },
+      { text: 'Floor grout/joints scrubbed and sanitized', critical: false },
+      { text: 'Condensation eliminated from overhead structures', critical: true },
+      { text: 'Air handling units filters checked/replaced', critical: false },
+      { text: 'Pest control devices inspected and cleaned', critical: false },
+      { text: 'Chemical storage area reorganized', critical: false },
+      { text: 'Sanitizer concentration verified post-clean', critical: true },
+      { text: 'ATP/swab testing completed on all critical surfaces', critical: true },
+      { text: 'All hand wash stations deep cleaned', critical: false },
+      { text: 'Loading dock/receiving area power washed', critical: false },
+      { text: 'Waste/recycling area deep cleaned', critical: false },
+      { text: 'Break room and restrooms deep cleaned', critical: false },
+      { text: 'Tool storage cleaned and organized', critical: false },
+      { text: 'Exterior perimeter checked for pest entry points', critical: false },
+      { text: 'Fire extinguishers inspected and accessible', critical: false },
+      { text: 'Emergency exits clear and operational', critical: false },
+      { text: 'Deep clean log completed and signed', critical: true },
+      { text: 'Supervisor verification walkthrough completed', critical: true },
+    ],
+    'GG-CL-021': [
+      { text: 'All interior trap stations inspected', critical: false },
+      { text: 'All exterior bait stations inspected', critical: false },
+      { text: 'Fly light traps checked and insects counted', critical: false },
+      { text: 'Pest control service report reviewed', critical: false },
+      { text: 'No new pest evidence (droppings, gnaw marks, nesting)', critical: true },
+      { text: 'Entry points sealed and maintained', critical: false },
+      { text: 'Landscaping trimmed away from building', critical: false },
+      { text: 'Standing water eliminated around facility', critical: false },
+      { text: 'Waste management areas clean and pest-free', critical: false },
+      { text: 'Pest trend analysis updated', critical: false },
+    ],
+    'GG-CL-024': [
+      { text: 'Management demonstrates commitment to food safety', critical: false },
+      { text: 'Food safety policies are clearly communicated to all employees', critical: false },
+      { text: 'Employees understand their role in food safety', critical: false },
+      { text: 'Training is regular and adequate for all levels', critical: false },
+      { text: 'Employees feel comfortable reporting food safety concerns', critical: true },
+      { text: 'Near-misses and concerns are investigated promptly', critical: false },
+      { text: 'Resources for food safety are adequate', critical: false },
+      { text: 'Food safety rules are consistently enforced', critical: false },
+      { text: 'Good practices are recognized and rewarded', critical: false },
+      { text: 'Cross-functional collaboration on food safety is effective', critical: false },
+      { text: 'Corrective actions are implemented in a timely manner', critical: false },
+      { text: 'Communication about food safety changes is timely', critical: false },
+      { text: 'New employees receive adequate food safety onboarding', critical: false },
+      { text: 'Employees have access to updated food safety procedures', critical: false },
+      { text: 'Personal hygiene practices are consistently followed', critical: true },
+      { text: 'Work environment supports food safety compliance', critical: false },
+      { text: 'Equipment is properly maintained for food safety', critical: false },
+      { text: 'Supplier food safety standards are communicated', critical: false },
+      { text: 'Continuous improvement in food safety is visible', critical: false },
+      { text: 'Overall food safety culture rating (1-5)', critical: false },
+    ],
+  };
+
+  // Generate generic items for templates not explicitly defined above
+  for (const checklist of checklistSeeds) {
+    const templateId = checklistIds[checklist.code];
+    const explicitItems = checklistItemSeeds[checklist.code];
+
+    if (explicitItems) {
+      for (let i = 0; i < explicitItems.length; i++) {
+        await db.execute({
+          sql: `INSERT INTO checklist_items (template_id, item_number, item_text, item_type, is_critical, sort_order)
+                VALUES (?, ?, ?, 'pass_fail', ?, ?)`,
+          args: [templateId, i + 1, explicitItems[i].text, explicitItems[i].critical ? 1 : 0, i + 1],
+        });
+      }
+    } else {
+      // Generate generic items based on template name and item_count
+      const itemCount = checklist.item_count;
+      for (let i = 1; i <= itemCount; i++) {
+        const isCritical = i <= Math.ceil(itemCount * 0.2) ? 1 : 0; // First 20% are critical
+        await db.execute({
+          sql: `INSERT INTO checklist_items (template_id, item_number, item_text, item_type, is_critical, sort_order)
+                VALUES (?, ?, ?, 'pass_fail', ?, ?)`,
+          args: [templateId, i, `${checklist.name} - Item ${i}`, isCritical, i],
+        });
+      }
+    }
+  }
+
   // SEED SOPs (43 total)
   const sopSeeds = [
     { code: 'GG-FSMS-001', title: 'Food Safety Policy & Commitment Statement', category: 'FSMS', applies_to: 'All Facilities', primus_ref: '1.01.01', nop_ref: '§205.201', sedex_ref: null, owner: 'FSQA Manager', status: 'Draft', priority: 'HIGH' },

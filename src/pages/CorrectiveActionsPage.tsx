@@ -295,6 +295,15 @@ export function CorrectiveActionsPage() {
           </thead>
           <tbody className="divide-y">
             {tab === 'nonconformances' ? (
+              nonconformances.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <AlertTriangle size={40} className="mx-auto text-gray-300 mb-2" />
+                    <p className="text-gray-500 text-sm">No nonconformances found</p>
+                    <p className="text-gray-400 text-xs mt-1">Click "+ New Record" to log a nonconformance</p>
+                  </td>
+                </tr>
+              ) : (
               nonconformances.map((nc) => (
                 <tr key={nc.id} className="hover:bg-green-50">
                   <td className="px-6 py-4 text-sm text-gray-600">{nc.finding_date}</td>
@@ -316,48 +325,61 @@ export function CorrectiveActionsPage() {
                   </td>
                 </tr>
               ))
+              )
             ) : (
-              capas
-                .filter(c => !facilityFilter || String(c.facility_id) === facilityFilter)
-                .filter(c => !priorityFilter || c.priority === priorityFilter)
-                .map((capa) => (
-                <tr key={capa.id} className="hover:bg-green-50">
-                  <td className="px-6 py-4 text-sm text-gray-600">{capa.target_completion_date}</td>
-                  <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">{capa.action_description}</td>
-                  <td className="px-6 py-4 text-sm">
-                    <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
-                      capa.priority === 'critical' ? 'bg-red-100 text-red-800' :
-                      capa.priority === 'high' ? 'bg-orange-100 text-orange-800' :
-                      capa.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-green-100 text-green-800'
-                    }`}>
-                      {capa.priority || 'medium'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    {capa.audit_finding_id ? (
-                      <Link to="/audit-simulator" className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
-                        <ExternalLink size={14} />
-                        Audit Finding
-                      </Link>
-                    ) : (
-                      <span className="text-gray-500">Manual</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      capa.status === 'closed' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      {capa.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <button onClick={() => handleDelete(capa.id)} className="text-red-600 hover:text-red-700">
-                      <Trash2 size={18} />
-                    </button>
-                  </td>
-                </tr>
-              ))
+              (() => {
+                const filtered = capas
+                  .filter(c => !facilityFilter || String(c.facility_id) === facilityFilter)
+                  .filter(c => !priorityFilter || c.priority === priorityFilter);
+                return filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center">
+                      <AlertTriangle size={40} className="mx-auto text-gray-300 mb-2" />
+                      <p className="text-gray-500 text-sm">No corrective actions found</p>
+                      <p className="text-gray-400 text-xs mt-1">Click "+ New Record" to create a CAPA</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((capa) => (
+                    <tr key={capa.id} className="hover:bg-green-50">
+                      <td className="px-6 py-4 text-sm text-gray-600">{capa.target_completion_date}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">{capa.action_description}</td>
+                      <td className="px-6 py-4 text-sm">
+                        <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                          capa.priority === 'critical' ? 'bg-red-100 text-red-800' :
+                          capa.priority === 'high' ? 'bg-orange-100 text-orange-800' :
+                          capa.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-green-100 text-green-800'
+                        }`}>
+                          {capa.priority || 'medium'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        {capa.audit_finding_id ? (
+                          <Link to="/audit-simulator" className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm">
+                            <ExternalLink size={14} />
+                            Audit Finding
+                          </Link>
+                        ) : (
+                          <span className="text-gray-500">Manual</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          capa.status === 'closed' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {capa.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <button onClick={() => handleDelete(capa.id)} className="text-red-600 hover:text-red-700">
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                );
+              })()
             )}
           </tbody>
         </table>

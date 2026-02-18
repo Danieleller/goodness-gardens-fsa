@@ -323,7 +323,7 @@ export function AuditSimulatorPage() {
 
   if (loading && pageState === 'setup' && facilities.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-green-50 to-emerald-50">
+      <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-12 h-12 text-green-600 animate-spin" />
           <p className="text-gray-600 font-medium">Loading audit simulator...</p>
@@ -335,7 +335,7 @@ export function AuditSimulatorPage() {
   // Setup State
   if (pageState === 'setup') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 p-8">
+      <div className="p-8">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <div className="flex items-center gap-3 mb-8">
@@ -463,7 +463,7 @@ export function AuditSimulatorPage() {
     const currentModuleData = modules.find((m) => m.id === activeModule);
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 p-8">
+      <div className="p-8">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
@@ -733,7 +733,7 @@ export function AuditSimulatorPage() {
     const scorePercentage = simulation.score_pct;
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 p-8">
+      <div className="p-8">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
