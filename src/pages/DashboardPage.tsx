@@ -210,7 +210,6 @@ const ROUTE_MODULE_MAP: Record<string, string> = {
   '/pre-harvest': 'pre_harvest',
   '/chemicals': 'chemicals',
   '/checklists': 'checklists',
-  '/supply-master': 'supply_master',
   '/sops': 'sops',
   '/gap-analysis': 'gap_analysis',
   '/audit-simulator': 'audit_simulator',

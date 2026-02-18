@@ -20,7 +20,6 @@ import { SOPHubPage } from '@/pages/SOPHubPage';
 import { GapAnalysisPage } from '@/pages/GapAnalysisPage';
 import { AuditSimulatorPage } from '@/pages/AuditSimulatorPage';
 import { SupplierPage } from '@/pages/SupplierPage';
-import { SupplyMasterPage } from '@/pages/SupplyMasterPage';
 import { AuditChecklistPage } from '@/pages/AuditChecklistPage';
 import { ComplianceDashboardPage } from '@/pages/ComplianceDashboardPage';
 import { ComplianceReportingPage } from '@/pages/ComplianceReportingPage';
@@ -84,7 +83,7 @@ export default function App() {
         <Route path="/gap-analysis" element={<RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}><GapAnalysisPage /></RoleProtectedRoute>} />
         <Route path="/audit-simulator" element={<RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}><AuditSimulatorPage /></RoleProtectedRoute>} />
         <Route path="/suppliers" element={<RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}><SupplierPage /></RoleProtectedRoute>} />
-        <Route path="/supply-master" element={<ProtectedRoute><SupplyMasterPage /></ProtectedRoute>} />
+        <Route path="/supply-master" element={<Navigate to="/suppliers" replace />} />
         <Route path="/compliance" element={<RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}><ComplianceDashboardPage /></RoleProtectedRoute>} />
         <Route path="/compliance-reporting" element={<RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}><ComplianceReportingPage /></RoleProtectedRoute>} />
         <Route path="/training" element={<RoleProtectedRoute allowedRoles={['supervisor', 'fsqa', 'management', 'admin']}><TrainingPage /></RoleProtectedRoute>} />
