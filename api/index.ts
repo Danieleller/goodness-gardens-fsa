@@ -262,6 +262,27 @@ async function handleSetup(req: VercelRequest, res: VercelResponse, db: any, use
     return res.status(200).json({ roles: ['worker', 'supervisor', 'fsqa', 'management', 'admin'] });
   }
 
+  // GET /api/setup/module-config
+  if (section === 'module-config') {
+    if (req.method === 'GET') {
+      const result = await db.execute({ sql: 'SELECT * FROM app_module_config ORDER BY module_group, module_name', args: [] });
+      return res.status(200).json({ modules: result.rows });
+    }
+
+    // PUT /api/setup/module-config/:moduleKey
+    if (req.method === 'PUT' && pathArray[1]) {
+      const moduleKey = pathArray[1];
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      const isEnabled = body.is_enabled ? 1 : 0;
+      await db.execute({
+        sql: 'UPDATE app_module_config SET is_enabled = ? WHERE module_key = ?',
+        args: [isEnabled, moduleKey],
+      });
+      const updated = await db.execute({ sql: 'SELECT * FROM app_module_config WHERE module_key = ?', args: [moduleKey] });
+      return res.status(200).json(updated.rows[0]);
+    }
+  }
+
   return res.status(404).json({ error: 'Setup section not found' });
 }
 
@@ -3933,6 +3954,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // GLOBAL SEARCH
     if (pathArray[0] === 'search') {
       return await handleSearch(req, res, db, userId);
+    }
+
+    // PUBLIC: Get enabled modules (any authenticated user)
+    if (pathArray[0] === 'modules' && pathArray[1] === 'enabled') {
+      const result = await db.execute({ sql: 'SELECT module_key FROM app_module_config WHERE is_enabled = 1', args: [] });
+      return res.status(200).json({ modules: result.rows.map((r: any) => r.module_key) });
     }
 
     // SETUP / ADMIN CONFIG

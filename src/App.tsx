@@ -28,6 +28,7 @@ import { TrainingPage } from '@/pages/TrainingPage';
 import { RolesPage } from '@/pages/RolesPage';
 import { TransactionsPage } from '@/pages/TransactionsPage';
 import { AuditLogPage } from '@/pages/AuditLogPage';
+import { ModuleConfigPage } from '@/pages/ModuleConfigPage';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
@@ -198,6 +199,14 @@ export default function App() {
           element={
             <AdminProtectedRoute>
               <TransactionsPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/modules"
+          element={
+            <AdminProtectedRoute>
+              <ModuleConfigPage />
             </AdminProtectedRoute>
           }
         />

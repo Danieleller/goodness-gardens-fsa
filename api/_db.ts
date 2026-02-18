@@ -723,6 +723,14 @@ export async function initDb() {
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (facility_id) REFERENCES facilities(id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_module_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      module_key TEXT UNIQUE NOT NULL,
+      module_name TEXT NOT NULL,
+      module_group TEXT NOT NULL,
+      is_enabled INTEGER DEFAULT 1,
+      description TEXT
     )`
   ];
 
@@ -992,6 +1000,8 @@ async function seedDb() {
     await seedPhase4(db);
     // Run Phase 5 seeds (training requirements, notifications)
     await seedPhase5(db);
+    // Run Phase 6 seeds (app module configuration)
+    await seedPhase6(db);
     seedData = true;
     return;
   }
@@ -1222,6 +1232,7 @@ async function seedDb() {
   await seedPhase3(db);
   await seedPhase4(db);
   await seedPhase5(db);
+  await seedPhase6(db);
 
   seedData = true;
 }
@@ -2082,5 +2093,47 @@ async function seedPhase5(db: ReturnType<typeof createClient>) {
       sql: `INSERT OR IGNORE INTO training_requirements (title, description, training_type, frequency_days, is_required, module_code, role) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       args: [req.title, req.desc, req.type, req.freq, req.required, req.module, req.role],
     });
+  }
+}
+
+async function seedPhase6(db: ReturnType<typeof createClient>) {
+  // ====================================================================
+  // PHASE 6: Seed app module configuration
+  // ====================================================================
+
+  // Check if modules already exist
+  const existingModulesCheck = await db.execute({
+    sql: 'SELECT COUNT(*) as cnt FROM app_module_config',
+    args: [],
+  });
+  if ((existingModulesCheck.rows[0] as any).cnt > 0) {
+    return; // Already seeded
+  }
+
+  const modules = [
+    { key: 'pre_harvest', name: 'Pre-Harvest Logs', group: 'operations', desc: 'Water tests, soil amendments, field hygiene' },
+    { key: 'chemicals', name: 'Chemical Tracking', group: 'operations', desc: 'Applications, storage, MRL compliance' },
+    { key: 'checklists', name: 'Digital Checklists', group: 'operations', desc: 'Daily inspections & sign-offs' },
+    { key: 'supply_master', name: 'Supply Master', group: 'operations', desc: 'Procurement and supply chain tracking' },
+    { key: 'audit_checklist', name: 'Audit Checklist', group: 'compliance', desc: 'PrimusGFS audit preparation checklists' },
+    { key: 'sops', name: 'SOP Hub', group: 'compliance', desc: 'Standard operating procedures with versioning' },
+    { key: 'gap_analysis', name: 'Gap Analysis', group: 'compliance', desc: 'Per-facility readiness tracker' },
+    { key: 'audit_simulator', name: 'Audit Simulator', group: 'compliance', desc: 'PrimusGFS v4.0 self-scoring' },
+    { key: 'compliance_dashboard', name: 'Compliance Dashboard', group: 'compliance', desc: 'FSMS compliance scoring engine' },
+    { key: 'compliance_reporting', name: 'Compliance Reporting', group: 'compliance', desc: 'Rules engine, risk scoring, trends' },
+    { key: 'corrective_actions', name: 'Corrective Actions', group: 'management', desc: 'CAPAs & nonconformance tracking' },
+    { key: 'suppliers', name: 'Suppliers', group: 'management', desc: 'Vendor management & certifications' },
+    { key: 'facilities', name: 'Facilities', group: 'management', desc: 'Multi-site facility management' },
+    { key: 'reports', name: 'Reports & Export', group: 'management', desc: 'Download CSV data exports' },
+    { key: 'training', name: 'Training', group: 'management', desc: 'Worker training records & certifications' },
+  ];
+
+  for (const m of modules) {
+    try {
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO app_module_config (module_key, module_name, module_group, is_enabled, description) VALUES (?, ?, ?, 1, ?)',
+        args: [m.key, m.name, m.group, m.desc],
+      });
+    } catch (_e) { /* ignore */ }
   }
 }

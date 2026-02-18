@@ -226,6 +226,14 @@ export const setupAPI = {
   roles: {
     getAll: () => api.get('/setup/roles'),
   },
+  moduleConfig: {
+    getAll: () => api.get('/setup/module-config'),
+    toggle: (moduleKey: string, isEnabled: boolean) => api.put(`/setup/module-config/${moduleKey}`, { is_enabled: isEnabled }),
+  },
+};
+
+export const modulesAPI = {
+  getEnabled: () => api.get('/modules/enabled'),
 };
 
 export const complianceAPI = {

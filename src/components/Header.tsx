@@ -2,12 +2,18 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { LogOut, Menu, X, ChevronDown, User, Settings, Search, Bell } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store';
-import { notificationsAPI } from '@/api';
+import { notificationsAPI, modulesAPI } from '@/api';
 import { SearchModal } from './SearchModal';
+
+interface NavItem {
+  to: string;
+  label: string;
+  moduleKey?: string;
+}
 
 interface NavGroup {
   label: string;
-  items: { to: string; label: string }[];
+  items: NavItem[];
   roles: string[];
 }
 
@@ -16,33 +22,33 @@ const allNavGroups: NavGroup[] = [
     label: 'Operations',
     items: [
       { to: '/dashboard', label: 'Dashboard' },
-      { to: '/pre-harvest', label: 'Pre-Harvest' },
-      { to: '/chemicals', label: 'Chemicals' },
-      { to: '/checklists', label: 'Checklists' },
-      { to: '/supply-master', label: 'Supply Master' },
+      { to: '/pre-harvest', label: 'Pre-Harvest', moduleKey: 'pre_harvest' },
+      { to: '/chemicals', label: 'Chemicals', moduleKey: 'chemicals' },
+      { to: '/checklists', label: 'Checklists', moduleKey: 'checklists' },
+      { to: '/supply-master', label: 'Supply Master', moduleKey: 'supply_master' },
     ],
     roles: ['worker', 'farmer', 'supervisor', 'fsqa', 'management', 'admin'],
   },
   {
     label: 'Compliance',
     items: [
-      { to: '/audit-checklist', label: 'Audit Checklist' },
-      { to: '/sops', label: 'SOP Hub' },
-      { to: '/gap-analysis', label: 'Gap Analysis' },
-      { to: '/audit-simulator', label: 'Audit Simulator' },
-      { to: '/compliance', label: 'Compliance Dashboard' },
-      { to: '/compliance-reporting', label: 'Compliance Reporting' },
+      { to: '/audit-checklist', label: 'Audit Checklist', moduleKey: 'audit_checklist' },
+      { to: '/sops', label: 'SOP Hub', moduleKey: 'sops' },
+      { to: '/gap-analysis', label: 'Gap Analysis', moduleKey: 'gap_analysis' },
+      { to: '/audit-simulator', label: 'Audit Simulator', moduleKey: 'audit_simulator' },
+      { to: '/compliance', label: 'Compliance Dashboard', moduleKey: 'compliance_dashboard' },
+      { to: '/compliance-reporting', label: 'Compliance Reporting', moduleKey: 'compliance_reporting' },
     ],
     roles: ['fsqa', 'management', 'admin'],
   },
   {
     label: 'Management',
     items: [
-      { to: '/corrective-actions', label: 'Corrective Actions' },
-      { to: '/suppliers', label: 'Suppliers' },
-      { to: '/facilities', label: 'Facilities' },
-      { to: '/reports', label: 'Reports' },
-      { to: '/training', label: 'Training' },
+      { to: '/corrective-actions', label: 'Corrective Actions', moduleKey: 'corrective_actions' },
+      { to: '/suppliers', label: 'Suppliers', moduleKey: 'suppliers' },
+      { to: '/facilities', label: 'Facilities', moduleKey: 'facilities' },
+      { to: '/reports', label: 'Reports', moduleKey: 'reports' },
+      { to: '/training', label: 'Training', moduleKey: 'training' },
     ],
     roles: ['supervisor', 'fsqa', 'management', 'admin'],
   },
@@ -51,15 +57,22 @@ const allNavGroups: NavGroup[] = [
     items: [
       { to: '/admin', label: 'Users' },
       { to: '/admin/roles', label: 'Roles' },
-      { to: '/admin/transactions', label: 'Transactions' },
+      { to: '/admin/transactions', label: 'Transaction Config' },
+      { to: '/admin/modules', label: 'Modules' },
       { to: '/admin/audit', label: 'Audit' },
     ],
     roles: ['admin'],
   },
 ];
 
-function getNavGroups(role: string): NavGroup[] {
-  return allNavGroups.filter((g) => g.roles.includes(role));
+function getNavGroups(role: string, enabledModules: Set<string>): NavGroup[] {
+  return allNavGroups
+    .filter((g) => g.roles.includes(role))
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((item) => !item.moduleKey || enabledModules.has(item.moduleKey)),
+    }))
+    .filter((g) => g.items.length > 0);
 }
 
 export function Header() {
@@ -69,6 +82,7 @@ export function Header() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [enabledModules, setEnabledModules] = useState<Set<string>>(new Set());
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
@@ -116,6 +130,19 @@ export function Header() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const loadModules = async () => {
+      try {
+        const res = await modulesAPI.getEnabled();
+        setEnabledModules(new Set(res.data?.modules || []));
+      } catch {
+        // If endpoint fails, show all modules
+        setEnabledModules(new Set(allNavGroups.flatMap(g => g.items.filter(i => i.moduleKey).map(i => i.moduleKey!))));
+      }
+    };
+    loadModules();
+  }, []);
+
   if (!user) return null;
 
   const isActive = (path: string) => location.pathname === path;
@@ -144,7 +171,7 @@ export function Header() {
             >
               <Search size={16} />
             </button>
-            {getNavGroups(user.role).map((group) => (
+            {getNavGroups(user.role, enabledModules).map((group) => (
               <div key={group.label} className="relative">
                 <button
                   onClick={() => setOpenDropdown(openDropdown === group.label ? null : group.label)}
@@ -292,7 +319,7 @@ export function Header() {
 
       {mobileMenuOpen && (
         <div className="lg:hidden border-t border-white/20 px-4 pb-4" style={{ backgroundColor: '#1A3A5C' }}>
-          {getNavGroups(user.role).map((group) => (
+          {getNavGroups(user.role, enabledModules).map((group) => (
             <div key={group.label} className="mt-3">
               <div className="text-blue-200 text-xs font-semibold uppercase tracking-wider mb-1">{group.label}</div>
               {group.items.map((item) => (

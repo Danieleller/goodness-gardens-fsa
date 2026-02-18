@@ -5,7 +5,7 @@ import {
   ClipboardCheck, BarChart3, Building2, Truck, Users, Leaf, Download,
   CalendarDays, CircleAlert, BadgeCheck, FlaskConical, ChevronDown, ChevronUp, Target
 } from 'lucide-react';
-import { reportsAPI, calendarAPI, auditFindingsAPI, correctiveActionAPI } from '@/api';
+import { reportsAPI, calendarAPI, auditFindingsAPI, correctiveActionAPI, modulesAPI } from '@/api';
 import { useAuthStore } from '@/store';
 
 // ── Calendar types ──
@@ -205,6 +205,35 @@ function KpiCard({ label, value, color, icon: Icon }: { label: string; value: st
 }
 
 // ── Main Dashboard ──
+// Route-to-moduleKey mapping for dashboard shortcuts
+const ROUTE_MODULE_MAP: Record<string, string> = {
+  '/pre-harvest': 'pre_harvest',
+  '/chemicals': 'chemicals',
+  '/checklists': 'checklists',
+  '/supply-master': 'supply_master',
+  '/sops': 'sops',
+  '/gap-analysis': 'gap_analysis',
+  '/audit-simulator': 'audit_simulator',
+  '/audit-checklist': 'audit_checklist',
+  '/compliance': 'compliance_dashboard',
+  '/compliance-reporting': 'compliance_reporting',
+  '/corrective-actions': 'corrective_actions',
+  '/suppliers': 'suppliers',
+  '/facilities': 'facilities',
+  '/reports': 'reports',
+  '/training': 'training',
+};
+
+function filterItemsByModules(
+  items: { to: string; label: string; description: string; icon: React.ElementType; badge?: string | number }[],
+  enabledModules: Set<string>,
+) {
+  return items.filter(item => {
+    const moduleKey = ROUTE_MODULE_MAP[item.to];
+    return !moduleKey || enabledModules.has(moduleKey);
+  });
+}
+
 export function DashboardPage() {
   const user = useAuthStore((state) => state.user);
   const [dashboard, setDashboard] = useState<any>(null);
@@ -212,14 +241,19 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [findingsSummary, setFindingsSummary] = useState<any>(null);
   const [capaSummary, setCapaSummary] = useState<any>(null);
+  const [enabledModules, setEnabledModules] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [dashRes, calRes] = await Promise.all([
+        const [dashRes, calRes, modulesRes] = await Promise.all([
           reportsAPI.dashboard(),
           calendarAPI.getEvents(90),
+          modulesAPI.getEnabled().catch(() => ({ data: { modules: [] } })),
         ]);
+        // Set enabled modules (fallback: all modules if endpoint fails)
+        const mods = modulesRes.data?.modules || [];
+        setEnabledModules(mods.length > 0 ? new Set(mods) : new Set(Object.values(ROUTE_MODULE_MAP)));
         setDashboard(dashRes.data);
 
         // Transform calendar data into events
@@ -306,34 +340,53 @@ export function DashboardPage() {
 
         {/* Left: Navigation Shortcut Groups (2 columns) */}
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <ShortcutGroup
-            title="Operations"
-            icon={ClipboardCheck}
-            items={[
+          {filterItemsByModules([
               { to: '/pre-harvest', label: 'Pre-Harvest Logs', description: 'Water tests, soil amendments, hygiene', icon: Leaf },
               { to: '/chemicals', label: 'Chemical Tracking', description: 'Applications, storage, MRL compliance', icon: FlaskConical },
               { to: '/checklists', label: 'Digital Checklists', description: 'Daily inspections & sign-offs', icon: ClipboardCheck },
               { to: '/facilities', label: 'Facilities', description: '7 locations across your network', icon: Building2 },
-            ]}
-          />
-          <ShortcutGroup
-            title="Compliance"
-            icon={Shield}
-            items={[
+            ], enabledModules).length > 0 && (
+            <ShortcutGroup
+              title="Operations"
+              icon={ClipboardCheck}
+              items={filterItemsByModules([
+                { to: '/pre-harvest', label: 'Pre-Harvest Logs', description: 'Water tests, soil amendments, hygiene', icon: Leaf },
+                { to: '/chemicals', label: 'Chemical Tracking', description: 'Applications, storage, MRL compliance', icon: FlaskConical },
+                { to: '/checklists', label: 'Digital Checklists', description: 'Daily inspections & sign-offs', icon: ClipboardCheck },
+                { to: '/facilities', label: 'Facilities', description: '7 locations across your network', icon: Building2 },
+              ], enabledModules)}
+            />
+          )}
+          {filterItemsByModules([
               { to: '/sops', label: 'SOP Document Hub', description: '43 SOPs with version control', icon: FileText },
               { to: '/gap-analysis', label: 'Gap Analysis', description: 'Per-facility readiness tracker', icon: BarChart3 },
               { to: '/audit-simulator', label: 'Audit Simulator', description: 'PrimusGFS v4.0 self-scoring', icon: Shield },
-            ]}
-          />
-          <ShortcutGroup
-            title="Management"
-            icon={Users}
-            items={[
+            ], enabledModules).length > 0 && (
+            <ShortcutGroup
+              title="Compliance"
+              icon={Shield}
+              items={filterItemsByModules([
+                { to: '/sops', label: 'SOP Document Hub', description: '43 SOPs with version control', icon: FileText },
+                { to: '/gap-analysis', label: 'Gap Analysis', description: 'Per-facility readiness tracker', icon: BarChart3 },
+                { to: '/audit-simulator', label: 'Audit Simulator', description: 'PrimusGFS v4.0 self-scoring', icon: Shield },
+              ], enabledModules)}
+            />
+          )}
+          {filterItemsByModules([
               { to: '/corrective-actions', label: 'Corrective Actions', description: 'CAPAs & nonconformances', icon: AlertTriangle, badge: openIssues > 0 ? openIssues : undefined },
               { to: '/suppliers', label: 'Supplier Management', description: 'Vendors & certifications', icon: Truck },
               { to: '/reports', label: 'Reports & Export', description: 'Download CSV data', icon: Download },
-            ]}
-          />
+            ], enabledModules).length > 0 && (
+            <ShortcutGroup
+              title="Management"
+              icon={Users}
+              items={filterItemsByModules([
+                { to: '/corrective-actions', label: 'Corrective Actions', description: 'CAPAs & nonconformances', icon: AlertTriangle, badge: openIssues > 0 ? openIssues : undefined },
+                { to: '/suppliers', label: 'Supplier Management', description: 'Vendors & certifications', icon: Truck },
+                { to: '/reports', label: 'Reports & Export', description: 'Download CSV data', icon: Download },
+              ], enabledModules)}
+            />
+          )}
           <ShortcutGroup
             title="Administration"
             icon={Users}
