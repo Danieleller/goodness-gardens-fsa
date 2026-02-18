@@ -1,9 +1,22 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, Menu, X, ChevronDown, User, Settings, Search, Bell, Clock, Home } from 'lucide-react';
+import { LogOut, Menu, X, ChevronDown, User, Settings, Search, Bell, Clock, Home, FileText, Users as UsersIcon, ClipboardCheck, AlertTriangle, Building2, Shield } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/store';
-import { notificationsAPI, modulesAPI } from '@/api';
-import { SearchModal } from './SearchModal';
+import { notificationsAPI, modulesAPI, searchAPI } from '@/api';
+
+// Search result type icons & labels
+const searchTypeIcons: Record<string, React.ReactNode> = {
+  supplier: <UsersIcon size={14} className="text-blue-500" />,
+  facility: <Building2 size={14} className="text-green-500" />,
+  sop: <FileText size={14} className="text-purple-500" />,
+  checklist: <ClipboardCheck size={14} className="text-teal-500" />,
+  capa: <AlertTriangle size={14} className="text-orange-500" />,
+  audit: <Shield size={14} className="text-red-500" />,
+};
+const searchTypeLabels: Record<string, string> = {
+  supplier: 'Suppliers', facility: 'Facilities', sop: 'Documents',
+  checklist: 'Checklists', capa: 'CAPA', audit: 'Audits',
+};
 
 interface NavItem {
   to: string;
@@ -103,7 +116,10 @@ export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredDropdown, setHoveredDropdown] = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Record<string, any[]>>({});
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [enabledModules, setEnabledModules] = useState<Set<string>>(
@@ -117,6 +133,8 @@ export function Header() {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const recentRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
 
   const handleLogout = () => {
@@ -141,6 +159,9 @@ export function Header() {
     setUserMenuOpen(false);
     setNotifOpen(false);
     setRecentOpen(false);
+    setSearchFocused(false);
+    setSearchQuery('');
+    setSearchResults({});
   }, [location.pathname]);
 
   useEffect(() => {
@@ -154,10 +175,44 @@ export function Header() {
       if (recentRef.current && !recentRef.current.contains(e.target as Node)) {
         setRecentOpen(false);
       }
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchFocused(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Inline search: debounced API call
+  useEffect(() => {
+    if (searchQuery.trim().length < 2) { setSearchResults({}); return; }
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await searchAPI.search(searchQuery);
+        setSearchResults(res.data.results || {});
+      } catch { setSearchResults({}); }
+      finally { setSearchLoading(false); }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Ctrl+K to focus search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        setSearchFocused(true);
+      }
+      if (e.key === 'Escape' && searchFocused) {
+        setSearchFocused(false);
+        searchInputRef.current?.blur();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [searchFocused]);
 
   useEffect(() => {
     const loadNotifications = async () => {
@@ -234,24 +289,86 @@ export function Header() {
                 </span>
               </Link>
 
-              {/* Center: Global Search Bar */}
-              <div className="flex-1 max-w-xl mx-auto hidden md:block">
-                <button
-                  onClick={() => setSearchOpen(true)}
-                  className="w-full flex items-center gap-3 px-4 py-2 bg-gray-100 border border-gray-300 rounded-md text-gray-400 hover:bg-gray-50 hover:border-gray-400 transition text-sm"
-                >
-                  <Search size={16} />
-                  <span className="flex-1 text-left">Search records, SOPs, reports...</span>
-                  <kbd className="hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white border border-gray-300 rounded text-[10px] text-gray-400 font-mono">
-                    Ctrl+K
-                  </kbd>
-                </button>
+              {/* Center: Inline Global Search Bar */}
+              <div ref={searchRef} className="flex-1 max-w-xl mx-auto hidden md:block relative">
+                <div className={`flex items-center gap-3 px-4 py-2 border rounded-md text-sm transition ${
+                  searchFocused ? 'bg-white border-blue-400 shadow-sm ring-2 ring-blue-100' : 'bg-gray-100 border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                }`}>
+                  <Search size={16} className="text-gray-400 shrink-0" />
+                  <input
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={() => setSearchFocused(true)}
+                    placeholder="Search records, SOPs, reports..."
+                    className="flex-1 bg-transparent outline-none text-gray-800 placeholder-gray-400"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => { setSearchQuery(''); setSearchResults({}); searchInputRef.current?.focus(); }}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                  {!searchQuery && (
+                    <kbd className="hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white border border-gray-300 rounded text-[10px] text-gray-400 font-mono">
+                      Ctrl+K
+                    </kbd>
+                  )}
+                </div>
+
+                {/* Inline search results dropdown */}
+                {searchFocused && (searchQuery.length >= 2 || searchQuery.length === 0) && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-xl border border-gray-200 z-50 overflow-hidden">
+                    {searchQuery.length < 2 ? (
+                      <div className="px-4 py-4 text-center text-sm text-gray-400">
+                        Type to search suppliers, documents, checklists, audits...
+                      </div>
+                    ) : searchLoading ? (
+                      <div className="px-4 py-4 text-center text-sm text-gray-400">
+                        <span className="inline-block animate-spin mr-2">⟳</span>Searching...
+                      </div>
+                    ) : Object.keys(searchResults).length === 0 ? (
+                      <div className="px-4 py-4 text-center text-sm text-gray-400">No results found</div>
+                    ) : (
+                      <div className="max-h-[50vh] overflow-y-auto">
+                        {Object.entries(searchResults).map(([type, items]) => (
+                          <div key={type}>
+                            <div className="px-3 py-1.5 text-[11px] font-semibold text-gray-500 uppercase bg-gray-50 sticky top-0 border-b border-gray-100">
+                              {searchTypeLabels[type] || type} ({items.length})
+                            </div>
+                            {items.map((item: any) => (
+                              <button
+                                key={`${item.entity_type}-${item.entity_id}`}
+                                onClick={() => {
+                                  navigate(item.url || '/dashboard');
+                                  setSearchFocused(false);
+                                  setSearchQuery('');
+                                  setSearchResults({});
+                                }}
+                                className="w-full flex items-center gap-3 px-3 py-2 hover:bg-blue-50 text-left transition"
+                              >
+                                <span className="shrink-0">{searchTypeIcons[type] || <FileText size={14} />}</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium text-gray-800 truncate">{item.title}</div>
+                                  {item.subtitle && <div className="text-xs text-gray-500 truncate">{item.subtitle}</div>}
+                                </div>
+                                {item.tags && <span className="text-[11px] text-gray-400 shrink-0">{item.tags}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Mobile: hamburger + search */}
               <div className="flex items-center gap-2 md:hidden ml-auto">
                 <button
-                  onClick={() => setSearchOpen(true)}
+                  onClick={() => { setSearchFocused(true); }}
                   className="p-2 rounded hover:bg-gray-100 transition"
                 >
                   <Search size={20} className="text-gray-600" />
@@ -541,7 +658,7 @@ export function Header() {
         </div>
       )}
 
-      <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+      {/* SearchModal removed — inline search is used instead */}
     </>
   );
 }
