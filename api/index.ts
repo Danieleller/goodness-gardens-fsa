@@ -3320,12 +3320,37 @@ async function handleOpsTaskEngine(req: VercelRequest, res: VercelResponse, db: 
         return res.status(400).json({ error: 'responses array required' });
       }
 
-      // Save responses
+      // Save responses — frontend sends { field_id, field_key, value, type }
       for (const resp of responses) {
+        let vText: string | null = null;
+        let vNumber: number | null = null;
+        let vBoolean: number | null = null;
+        let vJson: string | null = null;
+
+        if (resp.type === 'boolean' || resp.type === 'passfail') {
+          vBoolean = resp.value != null ? Number(resp.value) : null;
+        } else if (resp.type === 'number') {
+          vNumber = resp.value != null && resp.value !== '' ? Number(resp.value) : null;
+        } else if (resp.type === 'json') {
+          vJson = resp.value != null ? (typeof resp.value === 'string' ? resp.value : JSON.stringify(resp.value)) : null;
+        } else if (resp.type === 'signature') {
+          // Signatures are data URLs — store as text so the frontend can read them back
+          vText = resp.value != null ? String(resp.value) : null;
+        } else {
+          // text, textarea, select, date, time, etc.
+          vText = resp.value != null && resp.value !== '' ? String(resp.value) : null;
+        }
+
+        // Also support explicit value_text/value_number/value_boolean for backwards compat
+        if (resp.value_text !== undefined) vText = resp.value_text || null;
+        if (resp.value_number !== undefined) vNumber = resp.value_number ?? null;
+        if (resp.value_boolean !== undefined) vBoolean = resp.value_boolean ?? null;
+        if (resp.value_json !== undefined) vJson = resp.value_json || null;
+
         await db.execute({
           sql: `INSERT INTO ops_task_responses (instance_id, field_id, field_key, value_text, value_number, value_boolean, value_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          args: [taskId, resp.field_id, resp.field_key, resp.value_text || null, resp.value_number ?? null, resp.value_boolean ?? null, resp.value_json || null],
+          args: [taskId, resp.field_id, resp.field_key, vText, vNumber, vBoolean, vJson],
         });
       }
 
