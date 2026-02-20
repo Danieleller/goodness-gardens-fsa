@@ -3047,6 +3047,499 @@ async function calculateComplianceScore(db: any, facilityId: number, simulationI
 }
 
 // ============================================================================
+// OPERATIONS TASK ENGINE
+// ============================================================================
+
+async function handleOpsTaskEngine(req: VercelRequest, res: VercelResponse, db: any, userId: number, path: string[]) {
+  try {
+    const { allowed, role } = await requireRole(userId, db, ['worker', 'farmer', 'supervisor', 'fsqa', 'management', 'admin']);
+    if (!allowed) return res.status(403).json({ error: 'Access denied' });
+
+    const isSupervisorPlus = ['supervisor', 'fsqa', 'management', 'admin'].includes(role);
+    const isAdmin = role === 'admin';
+
+    // ── GET /ops/templates ──────────────────────────────────────────
+    if (path[0] === 'templates' && !path[1] && req.method === 'GET') {
+      const result = await db.execute({
+        sql: `SELECT t.*, (SELECT COUNT(*) FROM ops_task_fields WHERE template_id = t.id) as field_count
+              FROM ops_task_templates t WHERE t.is_active = 1 ORDER BY t.sort_order`,
+        args: [],
+      });
+      return res.status(200).json({ templates: result.rows });
+    }
+
+    // ── GET /ops/templates/:id ──────────────────────────────────────
+    if (path[0] === 'templates' && path[1] && req.method === 'GET') {
+      const templateId = Number(path[1]);
+      const template = await db.execute({ sql: 'SELECT * FROM ops_task_templates WHERE id = ?', args: [templateId] });
+      if (template.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
+      const fields = await db.execute({
+        sql: 'SELECT * FROM ops_task_fields WHERE template_id = ? ORDER BY sort_order',
+        args: [templateId],
+      });
+      return res.status(200).json({ template: template.rows[0], fields: fields.rows });
+    }
+
+    // ── GET /ops/schedules ──────────────────────────────────────────
+    if (path[0] === 'schedules' && req.method === 'GET') {
+      if (!isSupervisorPlus) return res.status(403).json({ error: 'Access denied' });
+      const facilityId = req.query?.facility_id ? Number(req.query.facility_id) : null;
+      let sql = `SELECT s.*, t.name as template_name, t.prefix, t.frequency as template_frequency,
+                 f.name as facility_name, u.first_name || ' ' || u.last_name as assigned_user_name
+                 FROM ops_task_schedules s
+                 JOIN ops_task_templates t ON s.template_id = t.id
+                 JOIN facilities f ON s.facility_id = f.id
+                 LEFT JOIN users u ON s.assigned_user_id = u.id
+                 WHERE s.is_active = 1`;
+      const args: any[] = [];
+      if (facilityId) { sql += ' AND s.facility_id = ?'; args.push(facilityId); }
+      sql += ' ORDER BY t.sort_order';
+      const result = await db.execute({ sql, args });
+      return res.status(200).json({ schedules: result.rows });
+    }
+
+    // ── POST /ops/schedules ─────────────────────────────────────────
+    if (path[0] === 'schedules' && req.method === 'POST') {
+      if (!isAdmin) return res.status(403).json({ error: 'Admin required' });
+      const { template_id, facility_id, recurrence, days_of_week, assigned_role, assigned_user_id, time_due } = req.body;
+      if (!template_id || !facility_id) return res.status(400).json({ error: 'template_id and facility_id required' });
+      const result = await db.execute({
+        sql: `INSERT INTO ops_task_schedules (template_id, facility_id, recurrence, days_of_week, assigned_role, assigned_user_id, time_due)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [template_id, facility_id, recurrence || 'daily', days_of_week || null, assigned_role || 'worker', assigned_user_id || null, time_due || '17:00'],
+      });
+      await logAuditAction(db, userId, 'create', 'ops_schedule', Number(result.lastInsertRowid), null, req.body);
+      return res.status(201).json({ id: Number(result.lastInsertRowid), message: 'Schedule created' });
+    }
+
+    // ── PUT /ops/schedules/:id ──────────────────────────────────────
+    if (path[0] === 'schedules' && path[1] && req.method === 'PUT') {
+      if (!isAdmin) return res.status(403).json({ error: 'Admin required' });
+      const scheduleId = Number(path[1]);
+      const { recurrence, days_of_week, assigned_role, assigned_user_id, time_due, is_active } = req.body;
+      await db.execute({
+        sql: `UPDATE ops_task_schedules SET recurrence = COALESCE(?, recurrence), days_of_week = ?, assigned_role = COALESCE(?, assigned_role),
+              assigned_user_id = ?, time_due = COALESCE(?, time_due), is_active = COALESCE(?, is_active) WHERE id = ?`,
+        args: [recurrence, days_of_week ?? null, assigned_role, assigned_user_id ?? null, time_due, is_active, scheduleId],
+      });
+      await logAuditAction(db, userId, 'update', 'ops_schedule', scheduleId, null, req.body);
+      return res.status(200).json({ message: 'Schedule updated' });
+    }
+
+    // ── POST /ops/generate ──────────────────────────────────────────
+    // Generate today's tasks based on active schedules
+    if (path[0] === 'generate' && req.method === 'POST') {
+      const today = new Date().toISOString().split('T')[0];
+      const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ...
+      const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const todayName = dayNames[dayOfWeek];
+
+      // Fetch active schedules
+      const schedules = await db.execute({
+        sql: `SELECT s.*, t.code as template_code, t.prefix, t.frequency as template_frequency
+              FROM ops_task_schedules s
+              JOIN ops_task_templates t ON s.template_id = t.id
+              WHERE s.is_active = 1 AND t.is_active = 1`,
+        args: [],
+      });
+
+      let created = 0;
+      let skipped = 0;
+
+      for (const sched of schedules.rows as any[]) {
+        // Check recurrence match
+        if (sched.recurrence === 'weekly' && sched.days_of_week) {
+          const allowedDays = sched.days_of_week.split(',').map((d: string) => d.trim().toLowerCase());
+          if (!allowedDays.includes(todayName)) { skipped++; continue; }
+        }
+        // Daily tasks always run. Monthly/scheduled: check if day matches
+        if (sched.recurrence === 'monthly') {
+          const dayOfMonth = new Date().getDate();
+          if (sched.days_of_week && !sched.days_of_week.split(',').includes(String(dayOfMonth))) { skipped++; continue; }
+        }
+
+        // Check if already generated for today
+        const existing = await db.execute({
+          sql: `SELECT id FROM ops_task_instances WHERE schedule_id = ? AND due_date = ?`,
+          args: [sched.id, today],
+        });
+        if (existing.rows.length > 0) { skipped++; continue; }
+
+        // Get program_type for transaction ID
+        const programType = `ops_${sched.template_code}`;
+        // Fallback: use the template prefix directly
+        const txId = await generateTransactionId(db, programType);
+
+        const result = await db.execute({
+          sql: `INSERT INTO ops_task_instances (schedule_id, template_id, facility_id, assigned_user_id, due_date, transaction_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+          args: [sched.id, sched.template_id, sched.facility_id, sched.assigned_user_id || null, today, txId],
+        });
+
+        // Index in search
+        if (txId) {
+          const facilityResult = await db.execute({ sql: 'SELECT name FROM facilities WHERE id = ?', args: [sched.facility_id] });
+          const facName = facilityResult.rows[0] ? (facilityResult.rows[0] as any).name : '';
+          const templateResult = await db.execute({ sql: 'SELECT name FROM ops_task_templates WHERE id = ?', args: [sched.template_id] });
+          const tmplName = templateResult.rows[0] ? (templateResult.rows[0] as any).name : '';
+          await upsertSearchIndex(db, 'task', Number(result.lastInsertRowid), `${txId} ${tmplName}`, `${facName} • ${today}`, `task ${sched.template_code}`, sched.facility_id, `/ops/tasks/${result.lastInsertRowid}`);
+        }
+
+        created++;
+      }
+
+      return res.status(200).json({ message: `Generated ${created} tasks, skipped ${skipped}`, created, skipped, date: today });
+    }
+
+    // ── GET /ops/my-tasks ───────────────────────────────────────────
+    // Worker's tasks for today (or specified date)
+    if (path[0] === 'my-tasks' && req.method === 'GET') {
+      const date = (req.query?.date as string) || new Date().toISOString().split('T')[0];
+      const facilityId = req.query?.facility_id ? Number(req.query.facility_id) : null;
+
+      let sql = `SELECT i.*, t.name as template_name, t.prefix, t.code as template_code, t.category,
+                 f.name as facility_name,
+                 (SELECT COUNT(*) FROM ops_task_fields WHERE template_id = i.template_id) as field_count
+                 FROM ops_task_instances i
+                 JOIN ops_task_templates t ON i.template_id = t.id
+                 JOIN facilities f ON i.facility_id = f.id
+                 WHERE i.due_date = ?`;
+      const args: any[] = [date];
+
+      // Workers see only their assigned tasks; supervisors+ see all
+      if (!isSupervisorPlus) {
+        sql += ' AND (i.assigned_user_id = ? OR i.assigned_user_id IS NULL)';
+        args.push(userId);
+      }
+      if (facilityId) { sql += ' AND i.facility_id = ?'; args.push(facilityId); }
+      sql += ' ORDER BY t.sort_order, f.name';
+
+      const result = await db.execute({ sql, args });
+      return res.status(200).json({ tasks: result.rows });
+    }
+
+    // ── GET /ops/tasks ──────────────────────────────────────────────
+    // All transactions (supervisor+ view)
+    if (path[0] === 'tasks' && !path[1] && req.method === 'GET') {
+      if (!isSupervisorPlus) return res.status(403).json({ error: 'Access denied' });
+      const date = req.query?.date as string;
+      const facilityId = req.query?.facility_id ? Number(req.query.facility_id) : null;
+      const templateId = req.query?.template_id ? Number(req.query.template_id) : null;
+      const status = req.query?.status as string;
+      const limit = Number(req.query?.limit) || 100;
+      const offset = Number(req.query?.offset) || 0;
+
+      let sql = `SELECT i.*, t.name as template_name, t.prefix, t.code as template_code, t.category,
+                 f.name as facility_name,
+                 su.first_name || ' ' || su.last_name as submitted_by_name,
+                 au.first_name || ' ' || au.last_name as assigned_user_name,
+                 ap.first_name || ' ' || ap.last_name as approved_by_name
+                 FROM ops_task_instances i
+                 JOIN ops_task_templates t ON i.template_id = t.id
+                 JOIN facilities f ON i.facility_id = f.id
+                 LEFT JOIN users su ON i.submitted_by = su.id
+                 LEFT JOIN users au ON i.assigned_user_id = au.id
+                 LEFT JOIN users ap ON i.approved_by = ap.id
+                 WHERE 1=1`;
+      const args: any[] = [];
+      if (date) { sql += ' AND i.due_date = ?'; args.push(date); }
+      if (facilityId) { sql += ' AND i.facility_id = ?'; args.push(facilityId); }
+      if (templateId) { sql += ' AND i.template_id = ?'; args.push(templateId); }
+      if (status) { sql += ' AND i.status = ?'; args.push(status); }
+      sql += ' ORDER BY i.due_date DESC, t.sort_order LIMIT ? OFFSET ?';
+      args.push(limit, offset);
+
+      const result = await db.execute({ sql, args });
+
+      // Total count
+      let countSql = 'SELECT COUNT(*) as total FROM ops_task_instances i WHERE 1=1';
+      const countArgs: any[] = [];
+      if (date) { countSql += ' AND i.due_date = ?'; countArgs.push(date); }
+      if (facilityId) { countSql += ' AND i.facility_id = ?'; countArgs.push(facilityId); }
+      if (templateId) { countSql += ' AND i.template_id = ?'; countArgs.push(templateId); }
+      if (status) { countSql += ' AND i.status = ?'; countArgs.push(status); }
+      const countResult = await db.execute({ sql: countSql, args: countArgs });
+      const total = (countResult.rows[0] as any)?.total || 0;
+
+      return res.status(200).json({ tasks: result.rows, total });
+    }
+
+    // ── GET /ops/tasks/:id ──────────────────────────────────────────
+    // Single task with responses
+    if (path[0] === 'tasks' && path[1] && !path[2] && req.method === 'GET') {
+      const taskId = Number(path[1]);
+      const task = await db.execute({
+        sql: `SELECT i.*, t.name as template_name, t.prefix, t.code as template_code, t.category, t.description as template_description,
+              f.name as facility_name,
+              su.first_name || ' ' || su.last_name as submitted_by_name,
+              au.first_name || ' ' || au.last_name as assigned_user_name,
+              ap.first_name || ' ' || ap.last_name as approved_by_name
+              FROM ops_task_instances i
+              JOIN ops_task_templates t ON i.template_id = t.id
+              JOIN facilities f ON i.facility_id = f.id
+              LEFT JOIN users su ON i.submitted_by = su.id
+              LEFT JOIN users au ON i.assigned_user_id = au.id
+              LEFT JOIN users ap ON i.approved_by = ap.id
+              WHERE i.id = ?`,
+        args: [taskId],
+      });
+      if (task.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+
+      const fields = await db.execute({
+        sql: 'SELECT * FROM ops_task_fields WHERE template_id = ? ORDER BY sort_order',
+        args: [(task.rows[0] as any).template_id],
+      });
+      const responses = await db.execute({
+        sql: 'SELECT * FROM ops_task_responses WHERE instance_id = ?',
+        args: [taskId],
+      });
+
+      return res.status(200).json({ task: task.rows[0], fields: fields.rows, responses: responses.rows });
+    }
+
+    // ── PUT /ops/tasks/:id/submit ───────────────────────────────────
+    // Submit completed task
+    if (path[0] === 'tasks' && path[1] && path[2] === 'submit' && req.method === 'PUT') {
+      const taskId = Number(path[1]);
+
+      // Verify task exists and is assignable
+      const task = await db.execute({ sql: 'SELECT * FROM ops_task_instances WHERE id = ?', args: [taskId] });
+      if (task.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+      const t = task.rows[0] as any;
+
+      // Workers can only submit their own tasks
+      if (!isSupervisorPlus && t.assigned_user_id && t.assigned_user_id !== userId) {
+        return res.status(403).json({ error: 'Not assigned to you' });
+      }
+      if (t.status === 'submitted' || t.status === 'approved') {
+        return res.status(400).json({ error: 'Task already submitted' });
+      }
+
+      const { responses, notes } = req.body;
+      if (!responses || !Array.isArray(responses)) {
+        return res.status(400).json({ error: 'responses array required' });
+      }
+
+      // Save responses
+      for (const resp of responses) {
+        await db.execute({
+          sql: `INSERT INTO ops_task_responses (instance_id, field_id, field_key, value_text, value_number, value_boolean, value_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          args: [taskId, resp.field_id, resp.field_key, resp.value_text || null, resp.value_number ?? null, resp.value_boolean ?? null, resp.value_json || null],
+        });
+      }
+
+      // Update instance status
+      await db.execute({
+        sql: `UPDATE ops_task_instances SET status = 'submitted', submitted_by = ?, submitted_at = datetime('now'), notes = COALESCE(?, notes) WHERE id = ?`,
+        args: [userId, notes || null, taskId],
+      });
+
+      // Log to transaction_log
+      if (t.transaction_id) {
+        await db.execute({
+          sql: `INSERT OR IGNORE INTO transaction_log (transaction_id, entity_type, entity_id, facility_id, created_by, status)
+                VALUES (?, 'ops_task', ?, ?, ?, 'submitted')`,
+          args: [t.transaction_id, taskId, t.facility_id, userId],
+        });
+      }
+
+      // Update search index
+      const tmpl = await db.execute({ sql: 'SELECT name FROM ops_task_templates WHERE id = ?', args: [t.template_id] });
+      const fac = await db.execute({ sql: 'SELECT name FROM facilities WHERE id = ?', args: [t.facility_id] });
+      const user = await db.execute({ sql: "SELECT first_name || ' ' || last_name as name FROM users WHERE id = ?", args: [userId] });
+      const tmplName = tmpl.rows[0] ? (tmpl.rows[0] as any).name : '';
+      const facName = fac.rows[0] ? (fac.rows[0] as any).name : '';
+      const userName = user.rows[0] ? (user.rows[0] as any).name : '';
+      await upsertSearchIndex(db, 'task', taskId, `${t.transaction_id || ''} ${tmplName}`, `${facName} • ${userName} • ${t.due_date}`, `task submitted ${t.transaction_id}`, t.facility_id, `/ops/tasks/${taskId}`);
+
+      // Audit log
+      await logAuditAction(db, userId, 'submit', 'ops_task', taskId, { status: t.status }, { status: 'submitted' });
+
+      return res.status(200).json({ message: 'Task submitted', transaction_id: t.transaction_id });
+    }
+
+    // ── PUT /ops/tasks/:id/approve ──────────────────────────────────
+    if (path[0] === 'tasks' && path[1] && path[2] === 'approve' && req.method === 'PUT') {
+      if (!isSupervisorPlus) return res.status(403).json({ error: 'Supervisor+ required' });
+      const taskId = Number(path[1]);
+      const task = await db.execute({ sql: 'SELECT * FROM ops_task_instances WHERE id = ?', args: [taskId] });
+      if (task.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+      const t = task.rows[0] as any;
+      if (t.status !== 'submitted') return res.status(400).json({ error: 'Task must be submitted before approval' });
+
+      await db.execute({
+        sql: `UPDATE ops_task_instances SET status = 'approved', approved_by = ?, approved_at = datetime('now') WHERE id = ?`,
+        args: [userId, taskId],
+      });
+
+      // Update transaction_log
+      if (t.transaction_id) {
+        await db.execute({
+          sql: `UPDATE transaction_log SET status = 'approved', approved_by = ?, approved_at = datetime('now') WHERE transaction_id = ?`,
+          args: [userId, t.transaction_id],
+        });
+      }
+
+      await logAuditAction(db, userId, 'approve', 'ops_task', taskId, { status: 'submitted' }, { status: 'approved' });
+      return res.status(200).json({ message: 'Task approved' });
+    }
+
+    // ── GET /ops/status ─────────────────────────────────────────────
+    // Completion status board
+    if (path[0] === 'status' && req.method === 'GET') {
+      if (!isSupervisorPlus) return res.status(403).json({ error: 'Access denied' });
+      const date = (req.query?.date as string) || new Date().toISOString().split('T')[0];
+
+      // Per-facility completion stats
+      const stats = await db.execute({
+        sql: `SELECT f.id as facility_id, f.name as facility_name,
+              COUNT(i.id) as total_tasks,
+              SUM(CASE WHEN i.status IN ('submitted', 'approved') THEN 1 ELSE 0 END) as completed_tasks,
+              SUM(CASE WHEN i.status = 'pending' THEN 1 ELSE 0 END) as pending_tasks,
+              SUM(CASE WHEN i.status = 'overdue' THEN 1 ELSE 0 END) as overdue_tasks
+              FROM ops_task_instances i
+              JOIN facilities f ON i.facility_id = f.id
+              WHERE i.due_date = ?
+              GROUP BY f.id, f.name
+              ORDER BY f.name`,
+        args: [date],
+      });
+
+      // Missing tasks detail
+      const missing = await db.execute({
+        sql: `SELECT i.id, i.transaction_id, i.status, i.due_date,
+              t.name as template_name, t.prefix,
+              f.name as facility_name,
+              u.first_name || ' ' || u.last_name as assigned_user_name
+              FROM ops_task_instances i
+              JOIN ops_task_templates t ON i.template_id = t.id
+              JOIN facilities f ON i.facility_id = f.id
+              LEFT JOIN users u ON i.assigned_user_id = u.id
+              WHERE i.due_date = ? AND i.status IN ('pending', 'overdue')
+              ORDER BY f.name, t.sort_order`,
+        args: [date],
+      });
+
+      // 30-day employee compliance rate
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const employeeStats = await db.execute({
+        sql: `SELECT u.id as user_id, u.first_name || ' ' || u.last_name as user_name,
+              COUNT(i.id) as total_assigned,
+              SUM(CASE WHEN i.status IN ('submitted', 'approved') THEN 1 ELSE 0 END) as completed
+              FROM ops_task_instances i
+              JOIN users u ON i.assigned_user_id = u.id
+              WHERE i.due_date BETWEEN ? AND ?
+              GROUP BY u.id
+              ORDER BY user_name`,
+        args: [thirtyDaysAgo, date],
+      });
+
+      return res.status(200).json({
+        date,
+        facilities: stats.rows,
+        missing_tasks: missing.rows,
+        employee_compliance: employeeStats.rows,
+      });
+    }
+
+    // ── POST /ops/compliance-check ──────────────────────────────────
+    // 6PM compliance check — called by cron job
+    if (path[0] === 'compliance-check' && req.method === 'POST') {
+      const today = new Date().toISOString().split('T')[0];
+
+      // Find all incomplete core daily tasks
+      const incomplete = await db.execute({
+        sql: `SELECT i.id, i.transaction_id, i.status,
+              t.name as template_name, t.prefix, t.is_core_daily,
+              f.name as facility_name, f.id as facility_id,
+              u.first_name || ' ' || u.last_name as assigned_user_name,
+              u.email as assigned_user_email
+              FROM ops_task_instances i
+              JOIN ops_task_templates t ON i.template_id = t.id
+              JOIN facilities f ON i.facility_id = f.id
+              LEFT JOIN users u ON i.assigned_user_id = u.id
+              WHERE i.due_date = ? AND i.status IN ('pending', 'in_progress')`,
+        args: [today],
+      });
+
+      // Mark overdue
+      await db.execute({
+        sql: `UPDATE ops_task_instances SET status = 'overdue'
+              WHERE due_date = ? AND status = 'pending'`,
+        args: [today],
+      });
+
+      // Group by facility for email
+      const byFacility: Record<string, any[]> = {};
+      for (const row of incomplete.rows as any[]) {
+        const key = row.facility_name || 'Unknown';
+        if (!byFacility[key]) byFacility[key] = [];
+        byFacility[key].push(row);
+      }
+
+      // Send email via Resend (if configured)
+      const resendApiKey = typeof process !== 'undefined' ? process.env?.RESEND_API_KEY : null;
+      let emailSent = false;
+      if (resendApiKey && incomplete.rows.length > 0) {
+        try {
+          const facilityList = Object.entries(byFacility).map(([facility, tasks]) => {
+            const taskLines = (tasks as any[]).map((t: any) =>
+              `  • ${t.prefix}-${t.transaction_id?.split('-')[1] || '?'} ${t.template_name} — ${t.assigned_user_name || 'Unassigned'} — ${t.status}`
+            ).join('\n');
+            return `📍 ${facility}\n${taskLines}`;
+          }).join('\n\n');
+
+          const emailBody = `FSQA Daily Compliance Alert\n\nDate: ${today}\nIncomplete Tasks: ${incomplete.rows.length}\n\n${facilityList}\n\nPlease complete all required tasks immediately.\n\nFSQA Management Portal\nhttps://goodness-gardens-fsa.vercel.app/ops/my-tasks`;
+
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: 'FSQA Alerts <alerts@goodnessgardens.net>',
+              to: ['fsqa@goodnessgardens.net'],
+              subject: `[FSQA ALERT] Incomplete Daily Compliance Tasks – ${today}`,
+              text: emailBody,
+            }),
+          });
+          emailSent = true;
+        } catch (emailErr) {
+          console.error('Email send failed:', emailErr);
+        }
+      }
+
+      // Create notifications for assigned users
+      for (const row of incomplete.rows as any[]) {
+        const r = row as any;
+        if (r.assigned_user_id) {
+          try {
+            await db.execute({
+              sql: `INSERT INTO notifications (user_id, facility_id, notification_type, severity, title, message, entity_type, entity_id)
+                    VALUES (?, ?, 'task_overdue', 'critical', ?, ?, 'ops_task', ?)`,
+              args: [r.assigned_user_id, r.facility_id, `Overdue: ${r.template_name}`, `${r.transaction_id} at ${r.facility_name} is overdue`, r.id],
+            });
+          } catch (_e) { /* ignore */ }
+        }
+      }
+
+      return res.status(200).json({
+        message: 'Compliance check completed',
+        date: today,
+        incomplete_count: incomplete.rows.length,
+        facilities_affected: Object.keys(byFacility).length,
+        email_sent: emailSent,
+        overdue_marked: incomplete.rows.length,
+      });
+    }
+
+    return res.status(404).json({ error: 'Operations endpoint not found' });
+  } catch (error) {
+    console.error('Ops task engine error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// ============================================================================
 // TRAINING & CERTIFICATION MODULE
 // ============================================================================
 
@@ -3969,6 +4462,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // PRIMUS AUDIT CHECKLIST
     if (pathArray[0] === 'primus-checklist') {
       return await handlePrimusChecklist(req, res, db, userId, pathArray[1], pathArray[2]);
+    }
+
+    // OPERATIONS TASK ENGINE
+    if (pathArray[0] === 'ops') {
+      return await handleOpsTaskEngine(req, res, db, userId, pathArray.slice(1));
     }
 
     // GLOBAL SEARCH

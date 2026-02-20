@@ -28,6 +28,12 @@ import { RolesPage } from '@/pages/RolesPage';
 import { TransactionsPage } from '@/pages/TransactionsPage';
 import { AuditLogPage } from '@/pages/AuditLogPage';
 import { ModuleConfigPage } from '@/pages/ModuleConfigPage';
+import { OpsMyTasksPage } from '@/pages/OpsMyTasksPage';
+import { OpsTaskFormPage } from '@/pages/OpsTaskFormPage';
+import { OpsStatusBoardPage } from '@/pages/OpsStatusBoardPage';
+import { OpsTransactionsPage } from '@/pages/OpsTransactionsPage';
+import { OpsCalendarPage } from '@/pages/OpsCalendarPage';
+import { OpsTemplatesPage } from '@/pages/OpsTemplatesPage';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
@@ -92,6 +98,12 @@ export default function App() {
         <Route path="/admin/modules" element={<AdminProtectedRoute><ModuleConfigPage /></AdminProtectedRoute>} />
         <Route path="/admin/audit" element={<AdminProtectedRoute><AuditLogPage /></AdminProtectedRoute>} />
         <Route path="/audit-checklist" element={<RoleProtectedRoute allowedRoles={['fsqa', 'management', 'admin']}><AuditChecklistPage /></RoleProtectedRoute>} />
+        <Route path="/ops/my-tasks" element={<ProtectedRoute><OpsMyTasksPage /></ProtectedRoute>} />
+        <Route path="/ops/tasks/:id" element={<ProtectedRoute><OpsTaskFormPage /></ProtectedRoute>} />
+        <Route path="/ops/status" element={<RoleProtectedRoute allowedRoles={['supervisor', 'fsqa', 'management', 'admin']}><OpsStatusBoardPage /></RoleProtectedRoute>} />
+        <Route path="/ops/transactions" element={<RoleProtectedRoute allowedRoles={['supervisor', 'fsqa', 'management', 'admin']}><OpsTransactionsPage /></RoleProtectedRoute>} />
+        <Route path="/ops/calendar" element={<RoleProtectedRoute allowedRoles={['supervisor', 'fsqa', 'management', 'admin']}><OpsCalendarPage /></RoleProtectedRoute>} />
+        <Route path="/ops/templates" element={<AdminProtectedRoute><OpsTemplatesPage /></AdminProtectedRoute>} />
         {/* Redirects for renamed routes */}
         <Route path="/locations" element={<Navigate to="/facilities" replace />} />
         <Route path="/location-setup" element={<Navigate to="/facilities" replace />} />

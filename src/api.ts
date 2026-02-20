@@ -297,3 +297,32 @@ export const notificationsAPI = {
   markAllRead: () => api.put('/notifications/read-all'),
   dismiss: (id: number) => api.put(`/notifications/${id}/dismiss`),
 };
+
+// ── Operations Task Engine ──────────────────────────────────────
+export const opsAPI = {
+  // Templates
+  templates: {
+    getAll: () => api.get('/ops/templates'),
+    getById: (id: number) => api.get(`/ops/templates/${id}`),
+  },
+  // Schedules
+  schedules: {
+    getAll: (facilityId?: number) => api.get('/ops/schedules', { params: facilityId ? { facility_id: facilityId } : {} }),
+    create: (data: any) => api.post('/ops/schedules', data),
+    update: (id: number, data: any) => api.put(`/ops/schedules/${id}`, data),
+  },
+  // Task Instances
+  generate: () => api.post('/ops/generate'),
+  myTasks: (date?: string, facilityId?: number) => api.get('/ops/my-tasks', { params: { ...(date && { date }), ...(facilityId && { facility_id: facilityId }) } }),
+  tasks: {
+    getAll: (params?: { date?: string; facility_id?: number; template_id?: number; status?: string; limit?: number; offset?: number }) =>
+      api.get('/ops/tasks', { params }),
+    getById: (id: number) => api.get(`/ops/tasks/${id}`),
+    submit: (id: number, data: { responses: any[]; notes?: string }) => api.put(`/ops/tasks/${id}/submit`, data),
+    approve: (id: number) => api.put(`/ops/tasks/${id}/approve`),
+  },
+  // Status Board
+  status: (date?: string) => api.get('/ops/status', { params: date ? { date } : {} }),
+  // Compliance Check (usually called by cron, but can be triggered manually)
+  complianceCheck: () => api.post('/ops/compliance-check'),
+};

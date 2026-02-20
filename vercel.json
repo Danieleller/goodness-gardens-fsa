@@ -9,5 +9,11 @@
       "maxDuration": 30,
       "includeFiles": "api/_*.ts"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/ops/compliance-check",
+      "schedule": "0 23 * * *"
+    }
+  ]
 }

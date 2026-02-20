@@ -731,6 +731,100 @@ export async function initDb() {
       module_group TEXT NOT NULL,
       is_enabled INTEGER DEFAULT 1,
       description TEXT
+    )`,
+
+    // ══════════════════════════════════════════════════════════════════
+    // OPERATIONS TASK ENGINE TABLES
+    // ══════════════════════════════════════════════════════════════════
+
+    // Task templates — the 10 task types (Pre-Op, Sanitation, ATP, etc.)
+    `CREATE TABLE IF NOT EXISTS ops_task_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      prefix TEXT NOT NULL,
+      description TEXT,
+      category TEXT NOT NULL,
+      frequency TEXT NOT NULL DEFAULT 'daily',
+      default_facility_types TEXT DEFAULT 'all',
+      requires_approval INTEGER DEFAULT 0,
+      is_core_daily INTEGER DEFAULT 1,
+      is_active INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`,
+
+    // Field definitions per template — dynamic form structure
+    `CREATE TABLE IF NOT EXISTS ops_task_fields (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id INTEGER NOT NULL,
+      field_key TEXT NOT NULL,
+      field_label TEXT NOT NULL,
+      field_type TEXT NOT NULL DEFAULT 'text',
+      options_json TEXT,
+      placeholder TEXT,
+      default_value TEXT,
+      is_required INTEGER DEFAULT 0,
+      auto_calc_rule TEXT,
+      sort_order INTEGER DEFAULT 0,
+      FOREIGN KEY (template_id) REFERENCES ops_task_templates(id),
+      UNIQUE(template_id, field_key)
+    )`,
+
+    // Schedules — which tasks run at which facilities on which days
+    `CREATE TABLE IF NOT EXISTS ops_task_schedules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id INTEGER NOT NULL,
+      facility_id INTEGER NOT NULL,
+      recurrence TEXT NOT NULL DEFAULT 'daily',
+      days_of_week TEXT,
+      assigned_role TEXT DEFAULT 'worker',
+      assigned_user_id INTEGER,
+      time_due TEXT DEFAULT '17:00',
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (template_id) REFERENCES ops_task_templates(id),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id),
+      FOREIGN KEY (assigned_user_id) REFERENCES users(id)
+    )`,
+
+    // Task instances — auto-generated daily assignments
+    `CREATE TABLE IF NOT EXISTS ops_task_instances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      schedule_id INTEGER,
+      template_id INTEGER NOT NULL,
+      facility_id INTEGER NOT NULL,
+      assigned_user_id INTEGER,
+      due_date TEXT NOT NULL,
+      transaction_id TEXT UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      submitted_by INTEGER,
+      submitted_at TEXT,
+      approved_by INTEGER,
+      approved_at TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (schedule_id) REFERENCES ops_task_schedules(id),
+      FOREIGN KEY (template_id) REFERENCES ops_task_templates(id),
+      FOREIGN KEY (facility_id) REFERENCES facilities(id),
+      FOREIGN KEY (assigned_user_id) REFERENCES users(id),
+      FOREIGN KEY (submitted_by) REFERENCES users(id),
+      FOREIGN KEY (approved_by) REFERENCES users(id)
+    )`,
+
+    // Task responses — field values for completed tasks
+    `CREATE TABLE IF NOT EXISTS ops_task_responses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id INTEGER NOT NULL,
+      field_id INTEGER NOT NULL,
+      field_key TEXT NOT NULL,
+      value_text TEXT,
+      value_number REAL,
+      value_boolean INTEGER,
+      value_json TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (instance_id) REFERENCES ops_task_instances(id),
+      FOREIGN KEY (field_id) REFERENCES ops_task_fields(id)
     )`
   ];
 
@@ -806,6 +900,24 @@ export async function initDb() {
     'CREATE INDEX IF NOT EXISTS idx_af_sim ON audit_findings(simulation_id)',
     'CREATE INDEX IF NOT EXISTS idx_af_severity ON audit_findings(severity)',
     'CREATE INDEX IF NOT EXISTS idx_af_status ON audit_findings(status)',
+    // ops_task_templates
+    'CREATE INDEX IF NOT EXISTS idx_ott_code ON ops_task_templates(code)',
+    'CREATE INDEX IF NOT EXISTS idx_ott_active ON ops_task_templates(is_active)',
+    // ops_task_fields
+    'CREATE INDEX IF NOT EXISTS idx_otf_template ON ops_task_fields(template_id)',
+    // ops_task_schedules
+    'CREATE INDEX IF NOT EXISTS idx_ots_template ON ops_task_schedules(template_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ots_facility ON ops_task_schedules(facility_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ots_active ON ops_task_schedules(is_active)',
+    // ops_task_instances
+    'CREATE INDEX IF NOT EXISTS idx_oti_facility ON ops_task_instances(facility_id)',
+    'CREATE INDEX IF NOT EXISTS idx_oti_due ON ops_task_instances(due_date)',
+    'CREATE INDEX IF NOT EXISTS idx_oti_status ON ops_task_instances(status)',
+    'CREATE INDEX IF NOT EXISTS idx_oti_assigned ON ops_task_instances(assigned_user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_oti_txn ON ops_task_instances(transaction_id)',
+    'CREATE INDEX IF NOT EXISTS idx_oti_template ON ops_task_instances(template_id)',
+    // ops_task_responses
+    'CREATE INDEX IF NOT EXISTS idx_otr_instance ON ops_task_responses(instance_id)',
   ];
   for (const sql of indexes) {
     await db.execute(sql);
@@ -2335,6 +2447,9 @@ async function seedPhase6(db: ReturnType<typeof createClient>) {
     { key: 'training', name: 'Training', group: 'management', desc: 'Worker training records & certifications' },
   ];
 
+  // Add ops_tasks module
+  modules.push({ key: 'ops_tasks', name: 'Operations Tasks', group: 'operations', desc: 'Daily compliance task engine with transaction tracking' });
+
   for (const m of modules) {
     try {
       await db.execute({
@@ -2342,5 +2457,297 @@ async function seedPhase6(db: ReturnType<typeof createClient>) {
         args: [m.key, m.name, m.group, m.desc],
       });
     } catch (_e) { /* ignore */ }
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // SEED: Operations Task Templates + Fields + Prefixes
+  // ══════════════════════════════════════════════════════════════════
+  await seedOpsTaskTemplates(db);
+}
+
+async function seedOpsTaskTemplates(db: ReturnType<typeof createClient>) {
+  // ── Transaction prefix configs for all 10 task types ──
+  const opsPrefixes = [
+    { program_type: 'ops_pre_op', prefix: 'PO' },
+    { program_type: 'ops_sanitation', prefix: 'SV' },
+    { program_type: 'ops_atp', prefix: 'ATP' },
+    { program_type: 'ops_environmental', prefix: 'EM' },
+    { program_type: 'ops_chemical_usage', prefix: 'CH' },
+    { program_type: 'ops_pest_control', prefix: 'PC' },
+    { program_type: 'ops_glass_plastic', prefix: 'GP' },
+    { program_type: 'ops_mock_recall', prefix: 'MR' },
+    { program_type: 'ops_food_defense', prefix: 'FD' },
+    { program_type: 'ops_training', prefix: 'TR' },
+  ];
+  for (const p of opsPrefixes) {
+    try {
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO transaction_prefix_config (program_type, prefix) VALUES (?, ?)',
+        args: [p.program_type, p.prefix],
+      });
+    } catch (_e) { /* ignore */ }
+  }
+
+  // ── Task Templates ──
+  const templates = [
+    { code: 'pre_op_inspection', name: 'Pre-Operational Inspection', prefix: 'PO', description: 'Daily pre-op inspection of packing room, cold storage, receiving, wash line, and equipment', category: 'inspection', frequency: 'daily', is_core_daily: 1, sort_order: 1 },
+    { code: 'sanitation_verification', name: 'Sanitation Verification', prefix: 'SV', description: 'Daily sanitation verification with chemical concentration and ATP testing', category: 'sanitation', frequency: 'daily', is_core_daily: 1, sort_order: 2 },
+    { code: 'atp_testing', name: 'ATP Testing Log', prefix: 'ATP', description: 'ATP bioluminescence testing for surface hygiene verification', category: 'testing', frequency: 'daily', is_core_daily: 1, sort_order: 3 },
+    { code: 'environmental_monitoring', name: 'Environmental Monitoring', prefix: 'EM', description: 'Environmental sampling for water, surfaces, and swabs', category: 'testing', frequency: 'scheduled', is_core_daily: 0, sort_order: 4 },
+    { code: 'chemical_usage', name: 'Chemical Usage Log', prefix: 'CH', description: 'Daily chemical usage tracking with concentration and supervisor verification', category: 'chemical', frequency: 'daily', is_core_daily: 1, sort_order: 5 },
+    { code: 'pest_control', name: 'Pest Control Check', prefix: 'PC', description: 'Scheduled pest control trap inspections and activity monitoring', category: 'inspection', frequency: 'scheduled', is_core_daily: 0, sort_order: 6 },
+    { code: 'glass_plastic', name: 'Glass & Plastic Inspection', prefix: 'GP', description: 'Weekly inspection for glass and hard plastic breakage or damage', category: 'inspection', frequency: 'weekly', is_core_daily: 0, sort_order: 7 },
+    { code: 'mock_recall', name: 'Mock Recall Drill', prefix: 'MR', description: 'Product traceability recall drill with timing and accuracy metrics', category: 'drill', frequency: 'scheduled', is_core_daily: 0, sort_order: 8 },
+    { code: 'food_defense', name: 'Food Defense Challenge', prefix: 'FD', description: 'Food defense vulnerability assessment and response drill', category: 'drill', frequency: 'scheduled', is_core_daily: 0, sort_order: 9 },
+    { code: 'training_record', name: 'Training Record', prefix: 'TR', description: 'Employee training session documentation with attendance and scores', category: 'training', frequency: 'scheduled', is_core_daily: 0, sort_order: 10 },
+  ];
+
+  for (const t of templates) {
+    try {
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO ops_task_templates (code, name, prefix, description, category, frequency, is_core_daily, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [t.code, t.name, t.prefix, t.description, t.category, t.frequency, t.is_core_daily, t.sort_order],
+      });
+    } catch (_e) { /* ignore */ }
+  }
+
+  // ── Field Definitions for each template ──
+  // Helper: get template ID by code
+  const getTemplateId = async (code: string) => {
+    const r = await db.execute({ sql: 'SELECT id FROM ops_task_templates WHERE code = ?', args: [code] });
+    return r.rows[0]?.id as number | undefined;
+  };
+
+  // 1️⃣ Pre-Operational Inspection
+  const poId = await getTemplateId('pre_op_inspection');
+  if (poId) {
+    const fields = [
+      { key: 'area', label: 'Area Inspected', type: 'select', options: '["Packing Room","Cold Storage","Receiving","Wash Line","Equipment"]', required: 1, sort: 1 },
+      { key: 'checklist_walls_floors', label: 'Walls & Floors Clean', type: 'passfail', required: 1, sort: 2 },
+      { key: 'checklist_equipment', label: 'Equipment Clean & Operational', type: 'passfail', required: 1, sort: 3 },
+      { key: 'checklist_lighting', label: 'Lighting Adequate', type: 'passfail', required: 1, sort: 4 },
+      { key: 'checklist_pest_evidence', label: 'No Pest Evidence', type: 'passfail', required: 1, sort: 5 },
+      { key: 'checklist_chemicals_stored', label: 'Chemicals Properly Stored', type: 'passfail', required: 1, sort: 6 },
+      { key: 'checklist_handwash', label: 'Handwash Stations Stocked', type: 'passfail', required: 1, sort: 7 },
+      { key: 'corrective_action_required', label: 'Corrective Action Required?', type: 'boolean', required: 1, sort: 8 },
+      { key: 'corrective_action_notes', label: 'Corrective Action Details', type: 'textarea', required: 0, sort: 9 },
+      { key: 'photo', label: 'Photo Evidence', type: 'file', required: 0, sort: 10 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 11 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [poId, f.key, f.label, f.type, f.options || null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 2️⃣ Sanitation Verification
+  const svId = await getTemplateId('sanitation_verification');
+  if (svId) {
+    const fields = [
+      { key: 'area_sanitized', label: 'Area Sanitized', type: 'text', required: 1, sort: 1 },
+      { key: 'chemical_used', label: 'Chemical Used', type: 'text', required: 1, sort: 2 },
+      { key: 'concentration', label: 'Concentration (ppm)', type: 'number', required: 1, sort: 3 },
+      { key: 'verified_by', label: 'Verified By', type: 'text', required: 1, sort: 4 },
+      { key: 'atp_required', label: 'ATP Testing Required?', type: 'boolean', required: 1, sort: 5 },
+      { key: 'result', label: 'Result', type: 'passfail', required: 1, sort: 6 },
+      { key: 'corrective_action', label: 'Corrective Action', type: 'textarea', required: 0, sort: 7 },
+      { key: 'attachments', label: 'Attachments', type: 'file', required: 0, sort: 8 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 9 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [svId, f.key, f.label, f.type, null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 3️⃣ ATP Testing Log
+  const atpId = await getTemplateId('atp_testing');
+  if (atpId) {
+    const fields = [
+      { key: 'surface_tested', label: 'Surface Tested', type: 'text', required: 1, sort: 1 },
+      { key: 'atp_value', label: 'ATP Value (RLU)', type: 'number', required: 1, sort: 2 },
+      { key: 'acceptable_threshold', label: 'Acceptable Threshold (RLU)', type: 'number', required: 1, sort: 3 },
+      { key: 'result', label: 'Result', type: 'passfail', required: 1, sort: 4, auto_calc: 'atp_value <= acceptable_threshold ? pass : fail' },
+      { key: 'retest_required', label: 'Retest Required?', type: 'boolean', required: 1, sort: 5 },
+      { key: 'verified_by', label: 'Verified By', type: 'text', required: 1, sort: 6 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 7 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, auto_calc_rule, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          args: [atpId, f.key, f.label, f.type, null, f.required, (f as any).auto_calc || null, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 4️⃣ Environmental Monitoring
+  const emId = await getTemplateId('environmental_monitoring');
+  if (emId) {
+    const fields = [
+      { key: 'sample_location', label: 'Sample Location', type: 'text', required: 1, sort: 1 },
+      { key: 'sample_type', label: 'Sample Type', type: 'select', options: '["Water","Surface","Swab","Air"]', required: 1, sort: 2 },
+      { key: 'lab_used', label: 'Lab Used', type: 'text', required: 1, sort: 3 },
+      { key: 'lab_number', label: 'Lab Sample Number', type: 'text', required: 1, sort: 4 },
+      { key: 'result_value', label: 'Result Value', type: 'text', required: 1, sort: 5 },
+      { key: 'result_unit', label: 'Result Unit', type: 'text', required: 0, sort: 6 },
+      { key: 'spec_limit', label: 'Specification Limit', type: 'text', required: 0, sort: 7 },
+      { key: 'out_of_spec', label: 'Out of Spec?', type: 'boolean', required: 1, sort: 8 },
+      { key: 'corrective_action', label: 'Corrective Action', type: 'textarea', required: 0, sort: 9 },
+      { key: 'attachments', label: 'Lab Report', type: 'file', required: 0, sort: 10 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 11 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [emId, f.key, f.label, f.type, f.options || null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 5️⃣ Chemical Usage Log
+  const chId = await getTemplateId('chemical_usage');
+  if (chId) {
+    const fields = [
+      { key: 'chemical_name', label: 'Chemical Name', type: 'text', required: 1, sort: 1 },
+      { key: 'lot_number', label: 'Lot Number', type: 'text', required: 1, sort: 2 },
+      { key: 'concentration', label: 'Concentration (ppm)', type: 'number', required: 1, sort: 3 },
+      { key: 'area_used', label: 'Area Used', type: 'text', required: 1, sort: 4 },
+      { key: 'operator', label: 'Operator', type: 'text', required: 1, sort: 5 },
+      { key: 'supervisor_verified', label: 'Supervisor Verified?', type: 'boolean', required: 1, sort: 6 },
+      { key: 'supervisor_name', label: 'Supervisor Name', type: 'text', required: 0, sort: 7 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 8 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [chId, f.key, f.label, f.type, null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 6️⃣ Pest Control Check
+  const pcId = await getTemplateId('pest_control');
+  if (pcId) {
+    const fields = [
+      { key: 'trap_id', label: 'Trap ID', type: 'text', required: 1, sort: 1 },
+      { key: 'condition', label: 'Trap Condition', type: 'select', options: '["Good","Damaged","Missing","Needs Replacement"]', required: 1, sort: 2 },
+      { key: 'activity_found', label: 'Activity Found?', type: 'boolean', required: 1, sort: 3 },
+      { key: 'activity_details', label: 'Activity Details', type: 'textarea', required: 0, sort: 4 },
+      { key: 'action_taken', label: 'Action Taken', type: 'textarea', required: 0, sort: 5 },
+      { key: 'external_provider', label: 'External Provider Involved?', type: 'boolean', required: 0, sort: 6 },
+      { key: 'attachments', label: 'Photo Evidence', type: 'file', required: 0, sort: 7 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 8 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [pcId, f.key, f.label, f.type, f.options || null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 7️⃣ Glass & Plastic Inspection
+  const gpId = await getTemplateId('glass_plastic');
+  if (gpId) {
+    const fields = [
+      { key: 'area_inspected', label: 'Area Inspected', type: 'text', required: 1, sort: 1 },
+      { key: 'damage_found', label: 'Damage Found?', type: 'boolean', required: 1, sort: 2 },
+      { key: 'damage_details', label: 'Damage Details', type: 'textarea', required: 0, sort: 3 },
+      { key: 'corrective_action', label: 'Corrective Action', type: 'textarea', required: 0, sort: 4 },
+      { key: 'verified_by', label: 'Verified By', type: 'text', required: 1, sort: 5 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 6 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [gpId, f.key, f.label, f.type, null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 8️⃣ Mock Recall Drill
+  const mrId = await getTemplateId('mock_recall');
+  if (mrId) {
+    const fields = [
+      { key: 'lot_number', label: 'Lot Number', type: 'text', required: 1, sort: 1 },
+      { key: 'product', label: 'Product', type: 'text', required: 1, sort: 2 },
+      { key: 'trace_time_minutes', label: 'Trace Time (minutes)', type: 'number', required: 1, sort: 3 },
+      { key: 'completion_time_minutes', label: 'Completion Time (minutes)', type: 'number', required: 1, sort: 4 },
+      { key: 'trace_accuracy_pct', label: 'Trace Accuracy (%)', type: 'number', required: 1, sort: 5 },
+      { key: 'gaps_identified', label: 'Gaps Identified', type: 'textarea', required: 0, sort: 6 },
+      { key: 'linked_capa', label: 'Linked CAPA ID', type: 'text', required: 0, sort: 7 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 8 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [mrId, f.key, f.label, f.type, null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 9️⃣ Food Defense Challenge
+  const fdId = await getTemplateId('food_defense');
+  if (fdId) {
+    const fields = [
+      { key: 'scenario', label: 'Scenario', type: 'textarea', required: 1, sort: 1 },
+      { key: 'response_time_minutes', label: 'Response Time (minutes)', type: 'number', required: 1, sort: 2 },
+      { key: 'employee_actions', label: 'Employee Actions Taken', type: 'textarea', required: 1, sort: 3 },
+      { key: 'vulnerability_identified', label: 'Vulnerability Identified?', type: 'boolean', required: 1, sort: 4 },
+      { key: 'vulnerability_details', label: 'Vulnerability Details', type: 'textarea', required: 0, sort: 5 },
+      { key: 'mitigation_plan', label: 'Mitigation Plan', type: 'textarea', required: 0, sort: 6 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 7 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [fdId, f.key, f.label, f.type, null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
+  }
+
+  // 🔟 Training Record
+  const trId = await getTemplateId('training_record');
+  if (trId) {
+    const fields = [
+      { key: 'training_type', label: 'Training Type', type: 'select', options: '["Food Safety","GMP","HACCP","Allergens","Chemical Handling","Emergency Response","Equipment Operation","Other"]', required: 1, sort: 1 },
+      { key: 'training_topic', label: 'Training Topic', type: 'text', required: 1, sort: 2 },
+      { key: 'employees_present', label: 'Employees Present (names)', type: 'textarea', required: 1, sort: 3 },
+      { key: 'employee_count', label: 'Number of Attendees', type: 'number', required: 1, sort: 4 },
+      { key: 'trainer', label: 'Trainer Name', type: 'text', required: 1, sort: 5 },
+      { key: 'test_score', label: 'Test Score (%)', type: 'number', required: 0, sort: 6 },
+      { key: 'materials', label: 'Training Materials', type: 'file', required: 0, sort: 7 },
+      { key: 'signature', label: 'Digital Signature', type: 'signature', required: 1, sort: 8 },
+    ];
+    for (const f of fields) {
+      try {
+        await db.execute({
+          sql: 'INSERT OR IGNORE INTO ops_task_fields (template_id, field_key, field_label, field_type, options_json, is_required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          args: [trId, f.key, f.label, f.type, f.options || null, f.required, f.sort],
+        });
+      } catch (_e) { /* ignore */ }
+    }
   }
 }

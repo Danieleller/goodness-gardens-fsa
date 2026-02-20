@@ -207,6 +207,9 @@ function KpiCard({ label, value, color, icon: Icon }: { label: string; value: st
 // ── Main Dashboard ──
 // Route-to-moduleKey mapping for dashboard shortcuts
 const ROUTE_MODULE_MAP: Record<string, string> = {
+  '/ops/my-tasks': 'ops_tasks',
+  '/ops/transactions': 'ops_tasks',
+  '/ops/status': 'ops_tasks',
   '/pre-harvest': 'pre_harvest',
   '/chemicals': 'chemicals',
   '/checklists': 'checklists',
@@ -341,6 +344,9 @@ export function DashboardPage() {
         {/* Left: Navigation Shortcut Groups (2 columns) */}
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
           {filterItemsByModules([
+              { to: '/ops/my-tasks', label: 'My Tasks', description: 'Daily compliance task assignments', icon: ClipboardCheck },
+              { to: '/ops/status', label: 'Status Board', description: 'Facility completion tracking', icon: BarChart3 },
+              { to: '/ops/transactions', label: 'All Transactions', description: 'Searchable task records', icon: FileText },
               { to: '/pre-harvest', label: 'Pre-Harvest Logs', description: 'Water tests, soil amendments, hygiene', icon: Leaf },
               { to: '/chemicals', label: 'Chemical Tracking', description: 'Applications, storage, MRL compliance', icon: FlaskConical },
               { to: '/checklists', label: 'Digital Checklists', description: 'Daily inspections & sign-offs', icon: ClipboardCheck },
@@ -350,6 +356,9 @@ export function DashboardPage() {
               title="Operations"
               icon={ClipboardCheck}
               items={filterItemsByModules([
+                { to: '/ops/my-tasks', label: 'My Tasks', description: 'Daily compliance task assignments', icon: ClipboardCheck },
+                { to: '/ops/status', label: 'Status Board', description: 'Facility completion tracking', icon: BarChart3 },
+                { to: '/ops/transactions', label: 'All Transactions', description: 'Searchable task records', icon: FileText },
                 { to: '/pre-harvest', label: 'Pre-Harvest Logs', description: 'Water tests, soil amendments, hygiene', icon: Leaf },
                 { to: '/chemicals', label: 'Chemical Tracking', description: 'Applications, storage, MRL compliance', icon: FlaskConical },
                 { to: '/checklists', label: 'Digital Checklists', description: 'Daily inspections & sign-offs', icon: ClipboardCheck },

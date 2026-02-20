@@ -13,10 +13,11 @@ const searchTypeIcons: Record<string, React.ReactNode> = {
   checklist: <ClipboardCheck size={14} className="text-teal-500" />,
   capa: <AlertTriangle size={14} className="text-orange-500" />,
   audit: <Shield size={14} className="text-red-500" />,
+  task: <ClipboardCheck size={14} className="text-green-600" />,
 };
 const searchTypeLabels: Record<string, string> = {
   user: 'Employees', supplier: 'Suppliers', facility: 'Locations', sop: 'Documents',
-  checklist: 'Checklists', capa: 'CAPA', audit: 'Audits',
+  checklist: 'Checklists', capa: 'CAPA', audit: 'Audits', task: 'Tasks',
 };
 
 interface NavItem {
@@ -35,6 +36,11 @@ const allNavGroups: NavGroup[] = [
   {
     label: 'Operations',
     items: [
+      { to: '/ops/my-tasks', label: 'My Tasks', moduleKey: 'ops_tasks' },
+      { to: '/ops/transactions', label: 'All Transactions', moduleKey: 'ops_tasks' },
+      { to: '/ops/status', label: 'Status Board', moduleKey: 'ops_tasks' },
+      { to: '/ops/calendar', label: 'Calendar', moduleKey: 'ops_tasks' },
+      { to: '/ops/templates', label: 'Task Templates', moduleKey: 'ops_tasks' },
       { to: '/pre-harvest', label: 'Pre-Harvest', moduleKey: 'pre_harvest' },
       { to: '/chemicals', label: 'Chemicals', moduleKey: 'chemicals' },
       { to: '/checklists', label: 'Checklists', moduleKey: 'checklists' },
@@ -90,6 +96,11 @@ function getNavGroups(role: string, enabledModules: Set<string>): NavGroup[] {
 // Page label map for recent history display
 const PAGE_LABELS: Record<string, string> = {
   '/dashboard': 'Dashboard',
+  '/ops/my-tasks': 'My Tasks',
+  '/ops/transactions': 'All Transactions',
+  '/ops/status': 'Status Board',
+  '/ops/calendar': 'Task Calendar',
+  '/ops/templates': 'Task Templates',
   '/pre-harvest': 'Pre-Harvest Logs',
   '/chemicals': 'Chemical Tracking',
   '/checklists': 'Digital Checklists',
