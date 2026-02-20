@@ -1187,6 +1187,8 @@ async function seedDb() {
     await seedPhase5(db);
     // Run Phase 6 seeds (app module configuration)
     await seedPhase6(db);
+    // Always run ops template seed independently (seedPhase6 may early-return if modules exist)
+    await seedOpsTaskTemplates(db);
     // Index all users for global search
     await seedUserSearchIndex(db);
     seedData = true;
@@ -1534,6 +1536,8 @@ async function seedDb() {
   await seedPhase4(db);
   await seedPhase5(db);
   await seedPhase6(db);
+  // Always run ops template seed independently (seedPhase6 may early-return if modules exist)
+  await seedOpsTaskTemplates(db);
   await seedUserSearchIndex(db);
 
   seedData = true;
