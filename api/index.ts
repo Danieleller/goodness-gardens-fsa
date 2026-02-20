@@ -3460,11 +3460,38 @@ async function handleOpsTaskEngine(req: VercelRequest, res: VercelResponse, db: 
         args: [thirtyDaysAgo, date],
       });
 
+      // Map to frontend-expected field names
+      const facilitiesMapped = stats.rows.map((r: any) => {
+        const total = Number(r.total_tasks) || 0;
+        const completed = Number(r.completed_tasks) || 0;
+        return {
+          facility_id: r.facility_id,
+          facility_name: r.facility_name,
+          total,
+          completed,
+          pending: Number(r.pending_tasks) || 0,
+          in_progress: total - completed - (Number(r.pending_tasks) || 0) - (Number(r.overdue_tasks) || 0),
+          overdue: Number(r.overdue_tasks) || 0,
+          pct: total > 0 ? Math.round((completed / total) * 100) : 0,
+        };
+      });
+      const employeesMapped = employeeStats.rows.map((r: any) => {
+        const total = Number(r.total_assigned) || 0;
+        const completed = Number(r.completed) || 0;
+        return {
+          user_id: r.user_id,
+          name: r.user_name,
+          total,
+          completed,
+          rate: total > 0 ? Math.round((completed / total) * 100) : 0,
+        };
+      });
+
       return res.status(200).json({
         date,
-        facilities: stats.rows,
-        missing_tasks: missing.rows,
-        employee_compliance: employeeStats.rows,
+        facilities: facilitiesMapped,
+        missing: missing.rows,
+        employees: employeesMapped,
       });
     }
 
