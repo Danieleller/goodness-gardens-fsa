@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { supabase } from '@/lib/supabase';
+import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 export interface User {
   id: number;
@@ -30,7 +32,11 @@ export const useModuleStore = create<ModuleStore>((set) => ({
 interface AuthStore {
   user: User | null;
   token: string | null;
+  supabaseUser: SupabaseUser | null;
+  session: Session | null;
   setAuth: (user: User, token: string) => void;
+  setSession: (session: Session | null) => void;
+  setAppUser: (user: User) => void;
   logout: () => void;
 }
 
@@ -39,11 +45,25 @@ export const useAuthStore = create<AuthStore>()(
     (set) => ({
       user: null,
       token: null,
+      supabaseUser: null,
+      session: null,
       setAuth: (user, token) => set({ user, token }),
-      logout: () => set({ user: null, token: null }),
+      setSession: (session) => set({
+        session,
+        supabaseUser: session?.user ?? null,
+        token: session?.access_token ?? null,
+      }),
+      setAppUser: (user) => set({ user }),
+      logout: () => {
+        supabase.auth.signOut();
+        set({ user: null, token: null, supabaseUser: null, session: null });
+      },
     }),
     {
       name: 'auth-storage',
+      partialize: (state) => ({
+        user: state.user,
+      }),
     }
   )
 );

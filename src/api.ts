@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from './store';
+import { supabase } from './lib/supabase';
 
 export const api = axios.create({
   baseURL: '/api',
@@ -8,8 +9,17 @@ export const api = axios.create({
   },
 });
 
-api.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().token;
+// Attach the Supabase session token to every request
+api.interceptors.request.use(async (config) => {
+  // First try the store token (set by Supabase auth listener)
+  let token = useAuthStore.getState().token;
+
+  // If no token in store, try getting fresh session from Supabase
+  if (!token) {
+    const { data: { session } } = await supabase.auth.getSession();
+    token = session?.access_token ?? null;
+  }
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -19,7 +29,6 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Only logout on 401 from our own auth endpoints, not from proxied APIs like NetSuite
     const url = error.config?.url || '';
     const isProxiedApi = url.includes('/netsuite/');
     if (error.response?.status === 401 && !isProxiedApi) {
@@ -30,11 +39,8 @@ api.interceptors.response.use(
   }
 );
 
+// Keep authAPI for backward compatibility — login/register now handled by Supabase client
 export const authAPI = {
-  register: (data: { email: string; password: string; first_name: string; last_name: string; organization_name: string }) =>
-    api.post('/auth/register', data),
-  login: (data: { email: string; password: string }) =>
-    api.post('/auth/login', data),
   me: () => api.get('/auth/me'),
 };
 

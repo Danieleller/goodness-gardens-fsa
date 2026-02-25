@@ -1,28 +1,84 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { AlertCircle } from 'lucide-react';
-import { authAPI } from '@/api';
-import { useAuthStore } from '@/store';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, Mail, Phone, Chrome } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+
+type AuthMode = 'options' | 'email' | 'phone' | 'phone-verify';
 
 export function LoginPage() {
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [mode, setMode] = useState<AuthMode>('options');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const setAuth = useAuthStore((state) => state.setAuth);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleGoogleSignIn = async () => {
+    setError('');
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: { hd: 'goodnessgardens.net' },
+      },
+    });
+    if (error) setError(error.message);
+  };
+
+  const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
-      const response = await authAPI.login(formData);
-      setAuth(response.data.user, response.data.token);
-      navigate('/dashboard');
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Login failed');
-    } finally {h
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setError(error.message);
+      } else {
+        navigate('/dashboard');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePhoneSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const formattedPhone = phone.startsWith('+') ? phone : `+1${phone.replace(/\D/g, '')}`;
+      const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone });
+      if (error) {
+        setError(error.message);
+      } else {
+        setMessage('Verification code sent!');
+        setMode('phone-verify');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const formattedPhone = phone.startsWith('+') ? phone : `+1${phone.replace(/\D/g, '')}`;
+      const { error } = await supabase.auth.verifyOtp({
+        phone: formattedPhone,
+        token: otp,
+        type: 'sms',
+      });
+      if (error) {
+        setError(error.message);
+      } else {
+        navigate('/dashboard');
+      }
+    } finally {
       setLoading(false);
     }
   };
@@ -47,44 +103,139 @@ export function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                required
-              />
+          {message && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-green-800 text-sm">{message}</p>
             </div>
+          )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                required
-              />
+          {mode === 'options' && (
+            <div className="space-y-3">
+              <button
+                onClick={handleGoogleSignIn}
+                className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 text-gray-700 font-medium py-3 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition"
+              >
+                <Chrome size={20} />
+                Sign in with Google
+              </button>
+
+              <button
+                onClick={() => { setMode('email'); setError(''); setMessage(''); }}
+                className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 text-gray-700 font-medium py-3 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition"
+              >
+                <Mail size={20} />
+                Sign in with Email
+              </button>
+
+              <button
+                onClick={() => { setMode('phone'); setError(''); setMessage(''); }}
+                className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-200 text-gray-700 font-medium py-3 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition"
+              >
+                <Phone size={20} />
+                Sign in with Phone
+              </button>
             </div>
+          )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-green-800 text-white font-medium py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+          {mode === 'email' && (
+            <form onSubmit={handleEmailSignIn} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-green-800 text-white font-medium py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+              >
+                {loading ? 'Signing in...' : 'Sign In'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('options'); setError(''); }}
+                className="w-full text-gray-500 text-sm hover:text-gray-700"
+              >
+                &larr; Back to sign-in options
+              </button>
+            </form>
+          )}
 
-          <p className="text-center text-gray-600 text-sm mt-6">
-            Don't have an account?{' '}
-            <Link to="/register" className="text-green-600 hover:text-green-700 font-medium">
-              Sign up
-            </Link>
-          </p>
+          {mode === 'phone' && (
+            <form onSubmit={handlePhoneSignIn} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+1 (555) 123-4567"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-green-800 text-white font-medium py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+              >
+                {loading ? 'Sending code...' : 'Send Verification Code'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('options'); setError(''); }}
+                className="w-full text-gray-500 text-sm hover:text-gray-700"
+              >
+                &larr; Back to sign-in options
+              </button>
+            </form>
+          )}
+
+          {mode === 'phone-verify' && (
+            <form onSubmit={handleVerifyOtp} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Verification Code</label>
+                <input
+                  type="text"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="Enter 6-digit code"
+                  maxLength={6}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-center text-2xl tracking-widest"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-green-800 text-white font-medium py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+              >
+                {loading ? 'Verifying...' : 'Verify & Sign In'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('phone'); setError(''); setMessage(''); }}
+                className="w-full text-gray-500 text-sm hover:text-gray-700"
+              >
+                &larr; Send a new code
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>

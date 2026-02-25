@@ -1,13 +1,14 @@
 import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { authAPI, modulesAPI } from '@/api';
+import { supabase } from '@/lib/supabase';
+import { modulesAPI } from '@/api';
 import { useAuthStore, useModuleStore } from '@/store';
 import { Header } from '@/components/Header';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AdminProtectedRoute } from '@/components/AdminProtectedRoute';
 import { RoleProtectedRoute } from '@/components/RoleProtectedRoute';
 import { LoginPage } from '@/pages/LoginPage';
-import { RegisterPage } from '@/pages/RegisterPage';
+import { AuthCallbackPage } from '@/pages/AuthCallbackPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { PreHarvestPage } from '@/pages/PreHarvestPage';
 import { ChemicalsPage } from '@/pages/ChemicalsPage';
@@ -37,28 +38,49 @@ import { OpsTemplatesPage } from '@/pages/OpsTemplatesPage';
 
 export default function App() {
   const user = useAuthStore((state) => state.user);
-  const setAuth = useAuthStore((state) => state.setAuth);
+  const setSession = useAuthStore((state) => state.setSession);
+  const setAppUser = useAuthStore((state) => state.setAppUser);
   const { loaded: modulesLoaded, loading: modulesLoading } = useModuleStore();
 
+  // Listen for Supabase auth state changes
   useEffect(() => {
-    const restoreSession = async () => {
-      try {
-        const response = await authAPI.me();
-        const token = useAuthStore.getState().token;
-        if (token) {
-          setAuth(response.data.user, token);
-        }
-      } catch (error) {
-        useAuthStore.getState().logout();
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        fetchAppUser(session.access_token);
       }
-    };
+    });
 
-    if (useAuthStore.getState().token && !user) {
-      restoreSession();
-    }
+    // Listen for changes (sign in, sign out, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        fetchAppUser(session.access_token);
+      } else {
+        useAuthStore.setState({ user: null, token: null, supabaseUser: null, session: null });
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch enabled modules ONCE at app boot (shared by Header + Dashboard + all pages)
+  // Fetch the app-level user (with role, etc.) from our API using the Supabase token
+  async function fetchAppUser(token: string) {
+    try {
+      const response = await fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAppUser(data.user);
+      }
+    } catch {
+      // User might not exist in app DB yet
+    }
+  }
+
+  // Fetch enabled modules ONCE at app boot
   useEffect(() => {
     if (!user || modulesLoaded || modulesLoading) return;
     useModuleStore.getState().setLoading(true);
@@ -76,7 +98,7 @@ export default function App() {
       {user && <Header />}
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <LoginPage />} />
-        <Route path="/register" element={user ? <Navigate to="/dashboard" /> : <RegisterPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/pre-harvest" element={<ProtectedRoute><PreHarvestPage /></ProtectedRoute>} />
         <Route path="/chemicals" element={<ProtectedRoute><ChemicalsPage /></ProtectedRoute>} />
