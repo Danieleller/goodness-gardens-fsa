@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+himport { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { modulesAPI } from '@/api';
@@ -73,7 +73,7 @@ export default function App() {
       });
       if (response.ok) {
         const data = await response.json();
-        setAppUser(data.user);
+        setAppUser(data);
       }
     } catch {
       // User might not exist in app DB yet
