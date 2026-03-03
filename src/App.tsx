@@ -1,4 +1,4 @@
-himport { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { modulesAPI } from '@/api';
