@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* ── FSQA Portal Design System ────────────────────────────────── */
+
+@theme inline {
+  --color-green-50: #f0fdf4;
+  --color-green-100: #dcfce7;
+  --color-green-200: #bbf7d0;
+  --color-green-300: #86efac;
+  --color-green-400: #4ade80;
+  --color-green-500: #22c55e;
+  --color-green-600: #16a34a;
+  --color-green-700: #15803d;
+  --color-green-800: #166534;
+  --color-green-900: #145231;
+}
+
+body {
+  background-color: var(--color-green-50);
+  color: #111827;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  transition: color 200ms, background-color 200ms, border-color 200ms;
+}
+
+input, textarea, select {
+  transition: color 200ms, background-color 200ms, border-color 200ms;
+}

@@ -1,13 +1,15 @@
-import { createClient } from '@supabase/supabase-js';
+/**
+ * Compatibility shim: re-exports the browser Supabase client.
+ * Old code imports `supabase` from '@/lib/supabase' — this keeps it working.
+ * Uses a getter to avoid eagerly creating the client during SSR/build.
+ */
+import { createClient } from "@/lib/supabase/client";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+let _client: ReturnType<typeof createClient> | null = null;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase environment variables. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
-}
-
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
-);
+export const supabase = new Proxy({} as ReturnType<typeof createClient>, {
+  get(_target, prop, receiver) {
+    if (!_client) _client = createClient();
+    return Reflect.get(_client, prop, receiver);
+  },
+});
