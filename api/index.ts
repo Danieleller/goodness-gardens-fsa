@@ -4332,7 +4332,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handleAuthRegister(req, res, db);
       }
       if (pathArray[1] === 'me') {
-        const userId = verifyToken(req);
+        const userId = await verifyToken(req);
         if (!userId) {
           return res.status(401).json({ error: 'Unauthorized' });
         }
@@ -4342,7 +4342,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // All other routes require authentication
-    const userId = verifyToken(req);
+    const userId = await verifyToken(req);
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
