@@ -33,11 +33,11 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public paths that don't require auth
+  // All /api/ routes handle their own auth via getAuthUserId() and return 401 JSON
   const isPublicPath =
     pathname === "/login" ||
     pathname.startsWith("/auth/callback") ||
-    pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/cron/");
+    pathname.startsWith("/api/");
 
   // If no user and trying to access a protected route, redirect to login
   if (!user && !isPublicPath) {
