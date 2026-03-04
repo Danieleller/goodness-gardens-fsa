@@ -31,14 +31,29 @@ Link.displayName = "Link";
 // --- useNavigate ---
 export function useNavigate() {
   const router = useRouter();
-  return (to: string | number) => {
+  return (to: string | number, options?: { replace?: boolean }) => {
     if (typeof to === "number") {
       if (to === -1) router.back();
       else router.push("/");
+    } else if (options?.replace) {
+      router.replace(to);
     } else {
       router.push(to);
     }
   };
+}
+
+// --- useSearchParams ---
+export function useSearchParams(): [URLSearchParams, (params: URLSearchParams) => void] {
+  const params =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : new URLSearchParams();
+  const router = useRouter();
+  const setParams = (next: URLSearchParams) => {
+    router.push(`?${next.toString()}`);
+  };
+  return [params, setParams];
 }
 
 // --- useParams ---

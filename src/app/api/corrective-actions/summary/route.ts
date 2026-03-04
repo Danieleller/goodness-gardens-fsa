@@ -46,7 +46,45 @@ export async function GET() {
     .where(eq(nonconformances.userId, userId))
     .groupBy(nonconformances.findingCategory);
 
+  // Count overdue CAPAs (target_completion_date < now and still open)
+  const [overdueStats] = await db
+    .select({
+      count: sql<number>`count(*)`.as("count"),
+    })
+    .from(correctiveActions)
+    .where(
+      and(
+        eq(correctiveActions.userId, userId),
+        sql`${correctiveActions.status} IN ('open', 'in_progress')`,
+        sql`${correctiveActions.targetCompletionDate} < datetime('now')`
+      )
+    );
+
+  // Group open CAPAs by nonconformance severity as a proxy for priority
+  const byPriorityRows = await db
+    .select({
+      severity: nonconformances.severity,
+      count: sql<number>`count(*)`.as("count"),
+    })
+    .from(correctiveActions)
+    .innerJoin(nonconformances, eq(correctiveActions.nonconformanceId, nonconformances.id))
+    .where(
+      and(
+        eq(correctiveActions.userId, userId),
+        sql`${correctiveActions.status} IN ('open', 'in_progress')`
+      )
+    )
+    .groupBy(nonconformances.severity);
+
+  const byPriority: Record<string, number> = {};
+  for (const row of byPriorityRows) {
+    byPriority[row.severity || "medium"] = row.count;
+  }
+
   return NextResponse.json({
+    total_open: capaStats.open + (capaStats.inProgress || 0),
+    total_overdue: overdueStats.count,
+    by_priority: byPriority,
     summary: {
       nonconformances: ncStats,
       correctiveActions: capaStats,

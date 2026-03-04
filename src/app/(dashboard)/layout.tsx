@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { appModuleConfig } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { Header } from "@/components/Header.next";
+import { StoreSync } from "@/components/StoreSync";
 
 export default async function DashboardLayout({
   children,
@@ -23,19 +24,19 @@ export default async function DashboardLayout({
 
   const enabledModules = modules.map((m) => m.moduleKey);
 
+  const userObj = {
+    id: session.user.id,
+    email: session.user.email,
+    first_name: session.user.firstName,
+    last_name: session.user.lastName,
+    organization_name: session.user.organizationName,
+    role: session.user.role,
+  };
+
   return (
     <div className="min-h-screen bg-green-50">
-      <Header
-        user={{
-          id: session.user.id,
-          email: session.user.email,
-          first_name: session.user.firstName,
-          last_name: session.user.lastName,
-          organization_name: session.user.organizationName,
-          role: session.user.role,
-        }}
-        enabledModules={enabledModules}
-      />
+      <StoreSync user={userObj} enabledModules={enabledModules} />
+      <Header user={userObj} enabledModules={enabledModules} />
       <main>{children}</main>
     </div>
   );

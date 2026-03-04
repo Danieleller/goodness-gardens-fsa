@@ -38,8 +38,21 @@ export async function GET() {
     })
     .from(auditFindings);
 
+  const openStatuses = byStatus.filter(
+    (s) => s.status === "open" || s.status === "in_progress"
+  );
+  const totalOpen = openStatuses.reduce((sum, s) => sum + s.count, 0);
+
+  // Build keyed severity object for frontend dashboard
+  const severityMap: Record<string, number> = {};
+  for (const row of bySeverity) {
+    severityMap[row.severity || "unknown"] = row.count;
+  }
+
   return NextResponse.json({
     total: total.count,
+    total_open: totalOpen,
+    by_severity: severityMap,
     bySeverity,
     byStatus,
     byFacility,

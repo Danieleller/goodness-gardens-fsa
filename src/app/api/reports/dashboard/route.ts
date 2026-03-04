@@ -65,6 +65,17 @@ export async function GET() {
     .limit(5);
 
   return NextResponse.json({
+    kpis: {
+      waterTests: preHarvestCount.count,
+      chemicalApplications: chemAppCount.count,
+      chemicalStorage: chemStorageCount.count,
+      openNonconformances: ncCount.total - (ncCount.critical || 0) > 0 ? ncCount.total : ncCount.total,
+      closedCapas: capaCount.total - capaCount.open - (capaCount.inProgress || 0),
+      chemicalCompliancePercentage:
+        chemAppCount.count > 0
+          ? Math.round(((chemAppCount.count - (ncCount.critical || 0)) / chemAppCount.count) * 100)
+          : 100,
+    },
     dashboard: {
       counts: {
         preHarvestLogs: preHarvestCount.count,
