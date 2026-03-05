@@ -30,4 +30,5 @@ export {
   modulesAPI,
   netsuiteAPI,
   certAPI,
+  programTasksAPI,
 } from "@/lib/api-client";

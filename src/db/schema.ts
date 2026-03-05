@@ -274,6 +274,9 @@ export const sopDocuments = sqliteTable("sop_documents", {
   facilityTypes: text("facility_types"),
   language: text("language").default("EN/ES"),
   owner: text("owner"),
+  phase: text("phase"),
+  sopType: text("sop_type"),
+  reviewOwner: text("review_owner"),
   status: text("status").default("Draft"),
   priority: text("priority").default("MEDIUM"),
   currentVersion: integer("current_version").default(1),
@@ -285,6 +288,7 @@ export const sopDocuments = sqliteTable("sop_documents", {
   index("idx_sop_status").on(table.status),
   index("idx_sop_category").on(table.category),
   index("idx_sop_created").on(table.createdAt),
+  index("idx_sop_phase").on(table.phase),
 ]);
 
 export const sopVersions = sqliteTable("sop_versions", {
@@ -934,6 +938,35 @@ export const opsTaskResponses = sqliteTable("ops_task_responses", {
 ]);
 
 // ══════════════════════════════════════════════════════════════════
+// PROGRAM TASKS
+// ══════════════════════════════════════════════════════════════════
+
+export const programTasks = sqliteTable("program_tasks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  code: text("code").unique().notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  taskType: text("task_type").notNull(),
+  priority: text("priority").default("MEDIUM"),
+  status: text("status").default("pending"),
+  phase: text("phase"),
+  owner: text("owner"),
+  effortEstimate: text("effort_estimate"),
+  targetDate: text("target_date"),
+  completionDate: text("completion_date"),
+  linkedSopCode: text("linked_sop_code"),
+  notes: text("notes"),
+  createdAt: text("created_at").default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").default(sql`(datetime('now'))`),
+}, (table) => [
+  index("idx_pt_type").on(table.taskType),
+  index("idx_pt_status").on(table.status),
+  index("idx_pt_priority").on(table.priority),
+  index("idx_pt_phase").on(table.phase),
+  index("idx_pt_owner").on(table.owner),
+]);
+
+// ══════════════════════════════════════════════════════════════════
 // TYPE EXPORTS
 // ══════════════════════════════════════════════════════════════════
 
@@ -954,3 +987,4 @@ export type AuditFinding = typeof auditFindings.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type OpsTaskTemplate = typeof opsTaskTemplates.$inferSelect;
 export type OpsTaskInstance = typeof opsTaskInstances.$inferSelect;
+export type ProgramTask = typeof programTasks.$inferSelect;

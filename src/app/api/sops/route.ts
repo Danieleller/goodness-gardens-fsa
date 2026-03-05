@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   const category = searchParams.get("category");
   const status = searchParams.get("status");
   const priority = searchParams.get("priority");
+  const phase = searchParams.get("phase");
   const tag = searchParams.get("tag");
 
   const conditions = [];
@@ -24,6 +25,9 @@ export async function GET(request: Request) {
   }
   if (priority) {
     conditions.push(eq(sopDocuments.priority, priority));
+  }
+  if (phase) {
+    conditions.push(eq(sopDocuments.phase, phase));
   }
 
   let query = db.select().from(sopDocuments);
@@ -59,8 +63,18 @@ export async function POST(request: Request) {
   const [sop] = await db
     .insert(sopDocuments)
     .values({
-      ...body,
-      createdBy: userId,
+      code: body.code,
+      title: body.title,
+      category: body.category,
+      description: body.description,
+      priority: body.priority,
+      language: body.language,
+      primusRef: body.primus_ref || body.primusRef,
+      nopRef: body.nop_ref || body.nopRef,
+      phase: body.phase,
+      sopType: body.sop_type || body.sopType,
+      reviewOwner: body.review_owner || body.reviewOwner,
+      facilityTypes: body.facility_types || body.facilityTypes,
     })
     .returning();
 

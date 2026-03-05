@@ -116,11 +116,12 @@ export const checklistsAPI = {
 };
 
 export const sopsAPI = {
-  getAll: (params?: { category?: string; status?: string; priority?: string; tag?: string }) => {
+  getAll: (params?: { category?: string; status?: string; priority?: string; phase?: string; tag?: string }) => {
     const sp = new URLSearchParams();
     if (params?.category) sp.set("category", params.category);
     if (params?.status) sp.set("status", params.status);
     if (params?.priority) sp.set("priority", params.priority);
+    if (params?.phase) sp.set("phase", params.phase);
     if (params?.tag) sp.set("tag", params.tag);
     return apiFetch(`/sops${sp.toString() ? `?${sp}` : ""}`);
   },
@@ -329,4 +330,19 @@ export const certAPI = {
   update: (id: number, data: any) => apiFetch(`/netsuite/certifications/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => apiFetch(`/netsuite/certifications/${id}`, { method: "DELETE" }),
   download: (id: number) => apiFetch(`/netsuite/certifications/${id}/download`),
+};
+
+export const programTasksAPI = {
+  getAll: (params?: { taskType?: string; status?: string; priority?: string; phase?: string; owner?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.taskType) sp.set("taskType", params.taskType);
+    if (params?.status) sp.set("status", params.status);
+    if (params?.priority) sp.set("priority", params.priority);
+    if (params?.phase) sp.set("phase", params.phase);
+    if (params?.owner) sp.set("owner", params.owner);
+    return apiFetch(`/program-tasks${sp.toString() ? `?${sp}` : ""}`);
+  },
+  getById: (id: number) => apiFetch(`/program-tasks/${id}`),
+  create: (data: any) => apiFetch("/program-tasks", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: any) => apiFetch(`/program-tasks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
 };
