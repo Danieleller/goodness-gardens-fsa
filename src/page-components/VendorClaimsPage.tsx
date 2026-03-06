@@ -133,7 +133,7 @@ const getStatusBadgeColor = (status: string) => {
   }
 };
 
-export default function VendorClaimsPage() {
+export function VendorClaimsPage() {
   const [claims, setClaims] = useState<Claim[]>(mockClaims);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');

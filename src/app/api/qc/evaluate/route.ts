@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '../../../lib/api-auth';
-import { evaluateInspection, type InspectionInput } from '../../../lib/qc/decision-engine';
+import { getAuthUserId, unauthorized } from '@/lib/api-auth';
+import { evaluateInspection, type InspectionInput } from '@/lib/qc/decision-engine';
 
 /**
  * POST /api/qc/evaluate
@@ -18,9 +18,7 @@ import { evaluateInspection, type InspectionInput } from '../../../lib/qc/decisi
 export async function POST(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     const body = await request.json();
@@ -123,7 +121,7 @@ export async function POST(request: NextRequest) {
       total_weight_lbs,
       purchase_price_per_unit,
       defects,
-      inspector_id: user.id,
+      inspector_id: userId,
       inspection_date: inspection_date || new Date().toISOString(),
     };
 

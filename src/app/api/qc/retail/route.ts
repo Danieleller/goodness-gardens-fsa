@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '../../../lib/api-auth';
-import { db } from '../../../db';
-import { evaluateInspection, type InspectionInput } from '../../../lib/qc/decision-engine';
+import { getAuthUserId, unauthorized } from '@/lib/api-auth';
+import { db } from '@/db';
+import { evaluateInspection, type InspectionInput } from '@/lib/qc/decision-engine';
 
 /**
  * GET /api/qc/retail
@@ -19,9 +19,7 @@ import { evaluateInspection, type InspectionInput } from '../../../lib/qc/decisi
 export async function GET(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     // Get query parameters
@@ -62,7 +60,7 @@ export async function GET(request: NextRequest) {
         status: status || 'pending',
         sample_count: 10,
         inspection_date: new Date().toISOString(),
-        inspector_id: user.id,
+        inspector_id: userId,
         created_at: new Date().toISOString(),
       },
     ];
@@ -115,9 +113,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     const body = await request.json();
@@ -164,7 +160,7 @@ export async function POST(request: NextRequest) {
     //   sample_count,
     //   total_packs,
     //   status: 'pending',
-    //   inspector_id: user.id,
+    //   inspector_id: userId,
     //   inspection_date: new Date(inspection_date),
     //   created_at: new Date(),
     // }).returning();
@@ -217,7 +213,7 @@ export async function POST(request: NextRequest) {
       sample_count,
       total_packs,
       status: totalCriticalDefects > 0 ? 'rejected' : 'pending',
-      inspector_id: user.id,
+      inspector_id: userId,
       inspection_date,
       created_at: new Date().toISOString(),
       summary: {

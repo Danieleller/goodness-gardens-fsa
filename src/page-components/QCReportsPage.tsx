@@ -155,7 +155,7 @@ const getScoreBadgeColor = (score: number) => {
   return 'bg-red-100 text-red-800';
 };
 
-export default function QCReportsPage() {
+export function QCReportsPage() {
   const [location, setLocation] = useState('All Locations');
   const [dateFrom, setDateFrom] = useState('2024-01-01');
   const [dateTo, setDateTo] = useState('2024-03-06');

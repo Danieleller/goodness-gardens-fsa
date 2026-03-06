@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '../../../../lib/api-auth';
-import { db } from '../../../../db';
+import { getAuthUserId, unauthorized } from '@/lib/api-auth';
+import { db } from '@/db';
 
 interface RouteContext {
   params: {
@@ -15,9 +15,7 @@ interface RouteContext {
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     const { id } = context.params;
@@ -50,7 +48,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       total_cases: 50,
       total_weight_lbs: 1200,
       purchase_price_per_unit: 0.85,
-      inspector_id: user.id,
+      inspector_id: userId,
       inspector_name: 'John Inspector',
       inspection_date: new Date().toISOString(),
       created_at: new Date().toISOString(),
@@ -124,9 +122,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     const { id } = context.params;
@@ -184,7 +180,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     //     previous_disposition: existingInspection[0].disposition,
     //     new_disposition: disposition,
     //     override_reason,
-    //     overridden_by: user.id,
+    //     overridden_by: userId,
     //     overridden_at: new Date(),
     //   });
     // }
@@ -200,7 +196,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       updated_at: new Date().toISOString(),
       notes: notes || 'Some defects detected but sortable',
       override_reason: override_reason || null,
-      overridden_by: override_reason ? user.id : null,
+      overridden_by: override_reason ? userId : null,
       overridden_at: override_reason ? new Date().toISOString() : null,
     };
 

@@ -281,7 +281,7 @@ const getGradeColor = (grade: string) => {
   }
 };
 
-export default function ReceivingInspectionPage() {
+export function ReceivingInspectionPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [formState, dispatch] = useReducer(formReducer, initialState);
   const decision = calculateDecision(formState);

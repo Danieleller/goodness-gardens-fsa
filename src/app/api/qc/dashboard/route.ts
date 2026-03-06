@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '../../../lib/api-auth';
-import { db } from '../../../db';
+import { getAuthUserId, unauthorized } from '@/lib/api-auth';
+import { db } from '@/db';
 
 /**
  * GET /api/qc/dashboard
@@ -22,9 +22,7 @@ import { db } from '../../../db';
 export async function GET(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     // Get query parameters

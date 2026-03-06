@@ -139,7 +139,7 @@ const getGradeBadgeColor = (grade: string) => {
   }
 };
 
-export default function QCDashboardPage() {
+export function QCDashboardPage() {
   const [selectedLocation, setSelectedLocation] = useState<string>('All Locations');
 
   return (

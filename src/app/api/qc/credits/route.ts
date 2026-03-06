@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '../../../lib/api-auth';
-import { db } from '../../../db';
+import { getAuthUserId, unauthorized } from '@/lib/api-auth';
+import { db } from '@/db';
 
 /**
  * GET /api/qc/credits
@@ -18,9 +18,7 @@ import { db } from '../../../db';
 export async function GET(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     // Get query parameters
@@ -68,7 +66,7 @@ export async function GET(request: NextRequest) {
         labor_buffer_pct: 12,
         yield_loss_pct: 5,
         total_credit_pct: 32.5,
-        created_by: user.id,
+        created_by: userId,
         created_at: new Date().toISOString(),
         submitted_at: null,
         approved_at: null,
@@ -123,9 +121,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     const body = await request.json();
@@ -178,7 +174,7 @@ export async function POST(request: NextRequest) {
     //   yield_loss_pct: 5,
     //   total_credit_pct: inspection[0].total_credit_pct,
     //   status: 'draft',
-    //   created_by: user.id,
+    //   created_by: userId,
     //   created_at: new Date(),
     //   notes: notes || null,
     // }).returning();
@@ -198,7 +194,7 @@ export async function POST(request: NextRequest) {
       labor_buffer_pct: 12,
       yield_loss_pct: 5,
       total_credit_pct: 32.5,
-      created_by: user.id,
+      created_by: userId,
       created_at: new Date().toISOString(),
       submitted_at: null,
       approved_at: null,
@@ -233,9 +229,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     const searchParams = request.nextUrl.searchParams;
@@ -292,10 +286,10 @@ export async function PATCH(request: NextRequest) {
     //   updateData.submitted_at = new Date();
     // } else if (status === 'approved') {
     //   updateData.approved_at = new Date();
-    //   updateData.approved_by = user.id;
+    //   updateData.approved_by = userId;
     // } else if (status === 'paid') {
     //   updateData.paid_at = new Date();
-    //   updateData.paid_by = user.id;
+    //   updateData.paid_by = userId;
     // }
 
     // if (notes) {

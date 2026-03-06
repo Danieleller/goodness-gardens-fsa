@@ -99,7 +99,7 @@ const getGrade = (passRate: number) => {
   return { grade: 'D', color: 'bg-red-500' };
 };
 
-export default function RetailQCPage() {
+export function RetailQCPage() {
   const [location, setLocation] = useState('');
   const [productionLine, setProductionLine] = useState('');
   const [customer, setCustomer] = useState('');

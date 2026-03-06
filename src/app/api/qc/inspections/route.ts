@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '../../../lib/api-auth';
-import { db } from '../../../db';
-import { evaluateInspection, type InspectionInput } from '../../../lib/qc/decision-engine';
+import { getAuthUserId, unauthorized } from '@/lib/api-auth';
+import { db } from '@/db';
+import { evaluateInspection, type InspectionInput } from '@/lib/qc/decision-engine';
 
 /**
  * GET /api/qc/inspections
@@ -20,9 +20,7 @@ import { evaluateInspection, type InspectionInput } from '../../../lib/qc/decisi
 export async function GET(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     // Get query parameters
@@ -65,7 +63,7 @@ export async function GET(request: NextRequest) {
         grade: (grade || 'A') as 'A' | 'B' | 'C' | 'D',
         disposition: 'ACCEPT',
         inspection_date: new Date().toISOString(),
-        inspector_id: user.id,
+        inspector_id: userId,
         created_at: new Date().toISOString(),
       },
     ];
@@ -105,9 +103,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Authenticate request
-    const user = await authenticateRequest(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = await getAuthUserId(); if (!userId) return unauthorized();
     }
 
     const body = await request.json();
@@ -149,7 +145,7 @@ export async function POST(request: NextRequest) {
       total_weight_lbs,
       purchase_price_per_unit,
       defects,
-      inspector_id: user.id,
+      inspector_id: userId,
       inspection_date: inspection_date || new Date().toISOString(),
     };
 
@@ -169,7 +165,7 @@ export async function POST(request: NextRequest) {
     //   total_cases,
     //   total_weight_lbs,
     //   purchase_price_per_unit,
-    //   inspector_id: user.id,
+    //   inspector_id: userId,
     //   inspection_date: new Date(inspection_date),
     //   created_at: new Date(),
     //   updated_at: new Date(),
@@ -196,7 +192,7 @@ export async function POST(request: NextRequest) {
     //     location_id,
     //     credit_amount_usd: gradeRecommendation.credit.credit_amount_usd,
     //     status: 'draft',
-    //     created_by: user.id,
+    //     created_by: userId,
     //     created_at: new Date(),
     //   });
     // }
@@ -217,7 +213,7 @@ export async function POST(request: NextRequest) {
         total_cases,
         total_weight_lbs,
         purchase_price_per_unit,
-        inspector_id: user.id,
+        inspector_id: userId,
         inspection_date,
         created_at: new Date().toISOString(),
         // Include the full grade recommendation for the response
