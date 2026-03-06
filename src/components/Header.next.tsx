@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { LogOut, Menu, X, ChevronDown, User, Settings, Search, Bell, Clock, Home, FileText, Users as UsersIcon, ClipboardCheck, AlertTriangle, Building2, Shield } from "lucide-react";
+import { LogOut, Menu, X, ChevronDown, User, Settings, Search, Bell, Clock, Home, FileText, Users as UsersIcon, ClipboardCheck, AlertTriangle, Building2, Shield, Microscope } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -46,6 +46,17 @@ const allNavGroups: NavGroup[] = [
       { to: "/pre-harvest", label: "Pre-Harvest", moduleKey: "pre_harvest" },
       { to: "/chemicals", label: "Chemicals", moduleKey: "chemicals" },
       { to: "/checklists", label: "Checklists", moduleKey: "checklists" },
+    ],
+    roles: ["worker", "farmer", "supervisor", "fsqa", "management", "admin"],
+  },
+  {
+    label: "Quality Control",
+    items: [
+      { to: "/qc", label: "QC Dashboard", moduleKey: "qc" },
+      { to: "/qc/receiving", label: "Receiving Inspection", moduleKey: "qc" },
+      { to: "/qc/retail", label: "Retail QC", moduleKey: "qc" },
+      { to: "/qc/claims", label: "Vendor Claims", moduleKey: "qc" },
+      { to: "/qc/reports", label: "QC Reports", moduleKey: "qc" },
     ],
     roles: ["worker", "farmer", "supervisor", "fsqa", "management", "admin"],
   },
