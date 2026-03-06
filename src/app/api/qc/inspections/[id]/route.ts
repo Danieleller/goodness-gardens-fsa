@@ -2,23 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUserId, unauthorized } from '@/lib/api-auth';
 import { db } from '@/db';
 
-interface RouteContext {
-  params: {
-    id: string;
-  };
-}
-
 /**
  * GET /api/qc/inspections/[id]
  * Get single inspection with all defects, photos, and credit details
  */
-export async function GET(request: NextRequest, context: RouteContext) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     // Authenticate request
     const userId = await getAuthUserId();
     if (!userId) return unauthorized();
 
-    const { id } = context.params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json({ error: 'Inspection ID is required' }, { status: 400 });
@@ -119,13 +116,16 @@ export async function GET(request: NextRequest, context: RouteContext) {
  * - override_reason?: string (required if overriding grade/disposition)
  * - notes?: string
  */
-export async function PATCH(request: NextRequest, context: RouteContext) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
     // Authenticate request
     const userId = await getAuthUserId();
     if (!userId) return unauthorized();
 
-    const { id } = context.params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json({ error: 'Inspection ID is required' }, { status: 400 });
