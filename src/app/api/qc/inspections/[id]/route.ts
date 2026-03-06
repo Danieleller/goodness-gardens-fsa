@@ -15,8 +15,8 @@ interface RouteContext {
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     // Authenticate request
-    const userId = await getAuthUserId(); if (!userId) return unauthorized();
-    }
+    const userId = await getAuthUserId();
+    if (!userId) return unauthorized();
 
     const { id } = context.params;
 
@@ -122,8 +122,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     // Authenticate request
-    const userId = await getAuthUserId(); if (!userId) return unauthorized();
-    }
+    const userId = await getAuthUserId();
+    if (!userId) return unauthorized();
 
     const { id } = context.params;
 

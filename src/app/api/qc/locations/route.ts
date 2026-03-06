@@ -13,8 +13,8 @@ import { db } from '@/db';
 export async function GET(request: NextRequest) {
   try {
     // Authenticate request
-    const userId = await getAuthUserId(); if (!userId) return unauthorized();
-    }
+    const userId = await getAuthUserId();
+    if (!userId) return unauthorized();
 
     // TODO: Fetch locations with their available commodities
     // const locations = await db.select({

@@ -18,8 +18,8 @@ import { evaluateInspection, type InspectionInput } from '@/lib/qc/decision-engi
 export async function POST(request: NextRequest) {
   try {
     // Authenticate request
-    const userId = await getAuthUserId(); if (!userId) return unauthorized();
-    }
+    const userId = await getAuthUserId();
+    if (!userId) return unauthorized();
 
     const body = await request.json();
 

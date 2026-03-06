@@ -22,8 +22,8 @@ import { db } from '@/db';
 export async function GET(request: NextRequest) {
   try {
     // Authenticate request
-    const userId = await getAuthUserId(); if (!userId) return unauthorized();
-    }
+    const userId = await getAuthUserId();
+    if (!userId) return unauthorized();
 
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;

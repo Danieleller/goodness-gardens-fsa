@@ -18,8 +18,8 @@ import { db } from '@/db';
 export async function GET(request: NextRequest) {
   try {
     // Authenticate request
-    const userId = await getAuthUserId(); if (!userId) return unauthorized();
-    }
+    const userId = await getAuthUserId();
+    if (!userId) return unauthorized();
 
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
@@ -121,8 +121,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Authenticate request
-    const userId = await getAuthUserId(); if (!userId) return unauthorized();
-    }
+    const userId = await getAuthUserId();
+    if (!userId) return unauthorized();
 
     const body = await request.json();
     const { inspection_id, vendor_id, notes } = body;
@@ -229,8 +229,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     // Authenticate request
-    const userId = await getAuthUserId(); if (!userId) return unauthorized();
-    }
+    const userId = await getAuthUserId();
+    if (!userId) return unauthorized();
 
     const searchParams = request.nextUrl.searchParams;
     const creditId = searchParams.get('credit_id');
