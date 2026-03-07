@@ -48,6 +48,17 @@ const allNavGroups: NavGroup[] = [
     roles: ['worker', 'farmer', 'supervisor', 'fsqa', 'management', 'admin'],
   },
   {
+    label: 'Quality Control',
+    items: [
+      { to: '/qc', label: 'QC Dashboard', moduleKey: 'qc' },
+      { to: '/qc/receiving', label: 'Receiving Inspection', moduleKey: 'qc' },
+      { to: '/qc/retail', label: 'Retail QC', moduleKey: 'qc' },
+      { to: '/qc/claims', label: 'Vendor Claims', moduleKey: 'qc' },
+      { to: '/qc/reports', label: 'QC Reports', moduleKey: 'qc' },
+    ],
+    roles: ['worker', 'farmer', 'supervisor', 'fsqa', 'management', 'admin'],
+  },
+  {
     label: 'Compliance',
     items: [
       { to: '/audit-checklist', label: 'Audit Checklist', moduleKey: 'audit_checklist' },
