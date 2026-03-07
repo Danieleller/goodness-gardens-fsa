@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
       total_weight_lbs,
       purchase_price_per_unit,
       defects,
-      inspector_id: userId,
+      inspector_id: String(userId),
       inspection_date: inspection_date || new Date().toISOString(),
     };
 
